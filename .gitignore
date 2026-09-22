@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Data: raw + processed corpora are large and reproducible from source.
+# Golden sets ARE committed (they are the curated ground truth).
+data/raw/
+data/processed/
+!data/golden/
+!data/golden/**
+
+# Caches
+.cache/
+llm_cache/
+.hf_cache/
+models/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

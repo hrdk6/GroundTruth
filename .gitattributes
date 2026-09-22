@@ -1,0 +1,14 @@
+# Normalize to LF in the repository. This matters beyond tidiness: a Dockerfile,
+# shell script, or Makefile checked out with CRLF fails inside a Linux container
+# with an unhelpful "not found" error.
+* text=auto eol=lf
+
+# Windows-only files keep CRLF.
+*.ps1 text eol=crlf
+
+# Binary and generated files git should not touch.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.safetensors binary
+uv.lock linguist-generated=true

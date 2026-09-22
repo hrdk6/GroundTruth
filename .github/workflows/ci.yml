@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Retrieval-only evals and unit tests never call the Anthropic API, so CI
+  # runs with no key at all. That is a property worth keeping.
+  POSTGRES_USER: groundtruth
+  POSTGRES_PASSWORD: groundtruth
+  POSTGRES_DB: groundtruth_test
+  POSTGRES_HOST: localhost
+  POSTGRES_PORT: 5432
+
+jobs:
+  quality:
+    name: Lint, types, tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: groundtruth
+          POSTGRES_PASSWORD: groundtruth
+          POSTGRES_DB: groundtruth_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U groundtruth -d groundtruth_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --all-extras
+
+      - name: Lint
+        working-directory: backend
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type-check
+        working-directory: backend
+        run: uv run mypy app evals
+
+      - name: Migrate
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      - name: Test
+        working-directory: backend
+        run: uv run pytest -q
+
+      - name: README results table is generated, not hand-edited
+        run: python scripts/generate_results_table.py --check
+
+  # The retrieval regression gate lands in Phase 7, once thresholds.yaml and a
+  # fixture golden set exist. Adding it before there is anything to measure
+  # would be a green check that means nothing.

@@ -1,0 +1,79 @@
+# GroundTruth local stack: `make up`.
+#
+# The backend mounts the source read-write and runs uvicorn --reload, so edits
+# on the host take effect without a rebuild. The frontend service is a
+# placeholder until Phase 6 and is behind the `frontend` profile so it does not
+# slow down `make up` before then.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: groundtruth-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-groundtruth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-groundtruth}
+      POSTGRES_DB: ${POSTGRES_DB:-groundtruth}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` alone returns true before the init scripts finish, which
+      # lets migrations race the first boot. Check the database by name.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-groundtruth} -d ${POSTGRES_DB:-groundtruth}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: groundtruth-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-groundtruth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-groundtruth}
+      POSTGRES_DB: ${POSTGRES_DB:-groundtruth}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GT_LOG_LEVEL: ${GT_LOG_LEVEL:-INFO}
+      GT_LOG_FORMAT: ${GT_LOG_FORMAT:-console}
+      # Keep the HuggingFace model cache on a named volume: re-downloading
+      # bge-small on every container start is slow and pointless.
+      HF_HOME: /models
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./configs:/configs:ro
+      - ./data:/data
+      - ./experiments:/experiments
+      - hf_models:/models
+      - llm_cache:/app/.cache
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    profiles: ["frontend"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: groundtruth-frontend
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:
+  hf_models:
+  llm_cache:

@@ -1,0 +1,70 @@
+name: Full evaluation (manual)
+
+# Generation evals cost money, so they never run automatically.
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: Config to evaluate
+        default: configs/baseline.yaml
+        required: true
+      split:
+        description: Dataset split
+        default: dev
+        required: true
+        type: choice
+        options: [dev, test]
+
+jobs:
+  evaluate:
+    name: Generation eval
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: groundtruth
+          POSTGRES_PASSWORD: groundtruth
+          POSTGRES_DB: groundtruth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U groundtruth -d groundtruth"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      POSTGRES_USER: groundtruth
+      POSTGRES_PASSWORD: groundtruth
+      POSTGRES_DB: groundtruth
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --all-extras
+
+      - name: Migrate
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      # Phase 2+ fills these in; kept explicit so the workflow's shape is clear.
+      - name: Ingest fixture corpus
+        working-directory: backend
+        run: echo "TODO(Phase 1): uv run python -m app.ingestion.run --config ../${{ inputs.config }}"
+
+      - name: Run evaluation
+        working-directory: backend
+        run: echo "TODO(Phase 2): uv run python -m evals.runner --config ../${{ inputs.config }} --split ${{ inputs.split }} --mode full"
