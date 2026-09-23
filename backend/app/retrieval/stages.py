@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Float, Select, and_, bindparam, func, literal, select
+from sqlalchemy import Float, Select, and_, bindparam, cast, func, literal, select
+from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -122,7 +123,13 @@ def lexical_search(
 
     # websearch_to_tsquery tolerates arbitrary user input (quotes, operators,
     # punctuation) instead of raising the way to_tsquery does.
-    tsquery = func.websearch_to_tsquery(literal(regconfig), bindparam("q", cleaned))
+    #
+    # The config name must be cast to `regconfig`: passed as a plain string it
+    # binds as varchar, and Postgres has no
+    # websearch_to_tsquery(varchar, varchar) overload.
+    tsquery = func.websearch_to_tsquery(
+        cast(literal(regconfig), REGCONFIG), bindparam("q", cleaned)
+    )
     rank = func.ts_rank_cd(Chunk.tsv, tsquery).cast(Float).label("rank")
 
     statement = (

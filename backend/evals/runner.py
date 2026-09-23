@@ -159,7 +159,7 @@ class ItemResult:
         }
 
 
-def _generation_metrics(results: list[ItemResult]) -> dict[str, Any]:
+def _generation_metrics(results: list[ItemResult], generation_ran: bool = True) -> dict[str, Any]:
     """Correctness, faithfulness, citation precision, abstention, version accuracy."""
     judged = [r for r in results if r.judge_passed is not None]
     metrics: dict[str, Any] = {}
@@ -181,7 +181,9 @@ def _generation_metrics(results: list[ItemResult]) -> dict[str, Any]:
         metrics["citation_precision"] = round(sum(cited) / len(cited), 4)
 
     # Abstention is a classifier: positive = "should abstain" (unanswerable).
-    unanswerable = [r for r in results if not r.answerable]
+    # Meaningless without generation, so it is omitted rather than reported as
+    # a row of zeroes that looks like a measured result.
+    unanswerable = [r for r in results if not r.answerable] if generation_ran else []
     answerable = [r for r in results if r.answerable]
     abstained_unanswerable = sum(1 for r in unanswerable if r.abstained)
     abstained_answerable = sum(1 for r in answerable if r.abstained)
@@ -200,6 +202,7 @@ def _generation_metrics(results: list[ItemResult]) -> dict[str, Any]:
             else None
         )
 
+    answerable = answerable if generation_ran else []
     version_items = [r for r in results if r.category == "version_sensitive" and r.expected_version]
     if version_items:
         metrics["version_correctness"] = round(
@@ -211,9 +214,11 @@ def _generation_metrics(results: list[ItemResult]) -> dict[str, Any]:
     return metrics
 
 
-def _aggregate(results: list[ItemResult], matches: list[MatchResult]) -> dict[str, Any]:
+def _aggregate(
+    results: list[ItemResult], matches: list[MatchResult], generation_ran: bool = True
+) -> dict[str, Any]:
     retrieval = aggregate_retrieval(matches).to_dict()
-    return {**retrieval, **_generation_metrics(results)}
+    return {**retrieval, **_generation_metrics(results, generation_ran)}
 
 
 def evaluate(
@@ -310,6 +315,7 @@ def evaluate(
             answered_correctly=answered_correctly,
             abstained=result.abstained if mode == "full" else False,
             answer_version=result.version_used,
+            generation_ran=mode == "full",
         )
         attributions.append(attribution)
         result.attribution = attribution.failure
@@ -323,7 +329,7 @@ def evaluate(
     for category in sorted({r.category for r in results}):
         indices = [i for i, r in enumerate(results) if r.category == category]
         by_category[category] = _aggregate(
-            [results[i] for i in indices], [matches[i] for i in indices]
+            [results[i] for i in indices], [matches[i] for i in indices], mode == "full"
         )
 
     latencies = [r.latency_ms for r in results]
@@ -343,7 +349,7 @@ def evaluate(
             "platform": platform.platform(),
             "embedding_model": config.embedding.model,
         },
-        "metrics": _aggregate(results, matches),
+        "metrics": _aggregate(results, matches, mode == "full"),
         "metrics_by_category": by_category,
         "attribution": summarize(attributions),
         "latency": {

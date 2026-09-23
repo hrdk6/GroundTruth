@@ -73,30 +73,52 @@ are documented in `CLAUDE.md` so the next person does not spend an hour on them.
 
 ## Phases 1-7
 
-### L7 — No measured results exist yet
+### L7 — No generation metric has been measured
 
-The largest limitation in the repository. Everything is implemented and tested
-at the unit level, but no experiment has been run, so `experiments/` is empty,
-the README results table is empty, and `EXPERIMENTS.md` has no entries.
+Retrieval is measured; generation is not. Grounded answering, claim
+verification, conflict notes and the LLM judge are implemented and unit tested,
+but every one of them calls a model, and this environment has no
+`ANTHROPIC_API_KEY`. There is therefore **no** answer-correctness,
+faithfulness, citation-precision, abstention or judge-agreement figure in this
+repository, and the sections that would hold them say so.
 
-**Cause.** Running anything end to end needs Postgres with pgvector. Docker is
-installed on the dev machine but WSL2 will not start -- hardware virtualization
-is disabled in firmware -- so no container can run.
+The same block stops `hybrid_rerank_rewrite` and `full` from being evaluated,
+which means query rewriting and multi-hop decomposition are untested against
+data — and `multi_hop` recall is 0.000 in every run, so decomposition is
+precisely the change most worth testing.
 
-**Fix.** Enable virtualization in BIOS/UEFI and run `make up && make ingest`,
-or point `DATABASE_URL` at any Postgres 16 with pgvector; a free managed
-instance needs no virtualization. CI already provisions one, so the integration
-tests and the retrieval gate will run there on the first push.
+**Fix.** Set a key, then `make eval CONFIG=configs/full.yaml MODE=full`,
+label ~50 items, and report the kappa.
 
-### L8 — The regression gate has no floors yet
+### L8 — The golden set is small, and I wrote it
 
-`evals/thresholds.yaml` ships with every floor set to `null`, so the gate runs
-and reports but cannot fail. That is deliberate -- there is no baseline to set
-floors from -- but until they are set, a green gate means "nothing measured",
-not "nothing regressed". `gate.py` says so explicitly in its output rather than
-printing a reassuring tick.
+32 curated items (19 dev / 13 test) against a target of ~300. At 19 dev items,
+**one item is worth about 5 points of recall**, so differences below ~0.10
+should be read as noise. The `hybrid_rerank` regression of −0.072 is one or two
+items; it was reverted on the combination of direction, a new `ranking_miss`
+and a 93x latency cost, not on that number alone.
 
-### L9 — The chunker's token budget can still overflow the encoder
+The items were also authored by reading the documentation rather than generated
+by a model and curated, because the generators need an API key. That is
+*stronger* provenance per item — every quote is verified against the parsed
+source — but it means the set reflects one author's idea of a good question,
+with none of the variety an LLM sweep over thousands of sections would produce.
+
+### L9 — The evaluated corpus is a subset
+
+639 pages from `concepts/` and `tasks/` across versions 1.26 and 1.30, not the
+3,102 pages across three branches that `make ingest` fetches. Embedding the
+full corpus on CPU ran for over two CPU-hours without finishing.
+
+This matters for interpreting the `hybrid` result in particular: lexical search
+improved *rank* but not *recall*, and the most likely reason is that at 639
+documents dense retrieval already had the gold chunk in its top 20. On a corpus
+ten times larger the recall story could differ. Untested.
+
+Every ingestion run records the `include` filter it used, so a result can never
+quietly claim more coverage than it had.
+
+### L10 — The chunker's token budget can still overflow the encoder
 
 `bge-small-en-v1.5` accepts 512 tokens. A config with `max_tokens: 512` plus a
 prepended heading path exceeds that, and the encoder truncates the tail
@@ -108,7 +130,7 @@ manifest) is emitted whole rather than split.
 measure whether the truncation actually costs recall -- which is an experiment
 nobody has run yet.
 
-### L10 — Multi-hop recall is scored strictly, and this flatters nothing
+### L11 — Multi-hop recall is scored strictly, and this flatters nothing
 
 `recall@k` requires *every* piece of gold evidence for an item. A multi-hop
 question with one of its two pages retrieved scores 0, not 0.5.
@@ -116,9 +138,24 @@ question with one of its two pages retrieved scores 0, not 0.5.
 headline number lower than a laxer definition would produce; it is the honest
 one, because half the evidence does not answer the question.
 
-### L11 — The frontend is dark-only
+### L12 — The frontend is dark-only
 
 No light theme ships. For people who read better on light backgrounds that is a
 real narrowing, and it is a choice rather than an oversight: the trace
 waterfall and rank trail are the product's core artifacts and read better on a
 dark ground. Recorded as decision D10.
+
+### L13 — Ingesting a different root tombstones the rest of that version
+
+`ingest(root=...)` treats whatever is under `root` as the whole corpus for the
+versions it touches, so anything absent is marked deleted. Ingesting the
+fixture corpus into a database that already holds the real one tombstones 289
+real pages, and they vanish from retrieval.
+
+This is correct behaviour for "the corpus is now this" and it is what CI wants
+on a fresh database, but locally it is a foot-gun. Re-ingesting the real corpus
+now resurrects them (that resurrection path was itself a bug, fixed and
+regression-tested), but the surprise remains.
+
+**Fix.** Use a separate database for fixture runs, or scope tombstoning to the
+`include` filter as well as the root.

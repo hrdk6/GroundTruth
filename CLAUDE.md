@@ -50,12 +50,22 @@ automatically — there is no `activate` step.
 - **Postgres 16 + pgvector** comes from the `pgvector/pgvector:pg16` image.
   There is no native Windows pgvector build worth the trouble; Docker is the
   supported path.
-- **Docker cannot run on this machine.** It is installed, but WSL2 will not
-  start: hardware virtualization is disabled in firmware (`wsl --status` says
-  so). That needs a BIOS/UEFI change and a reboot — it is not fixable from a
-  shell. Until then nothing that needs a database can run: no ingestion, no
-  retrieval, no experiments. The workaround that needs no virtualization is to
-  set `DATABASE_URL` to a managed Postgres 16 with pgvector.
+- **Docker cannot run on this machine**, and does not need to. WSL2 will not
+  start (hardware virtualization is disabled in firmware), so instead use
+  **`make db-local`**: the `pgserver` wheel ships a real PostgreSQL 16.2 with
+  pgvector that runs as an ordinary user process. Every measured result in this
+  repo came from it. It writes `DATABASE_URL` into `.env`; `cleanup_mode=None`
+  keeps it alive after the starting process exits, and `make db-local-stop`
+  ends it.
+- **`pg_trgm` is not in the pgserver build.** Migration `0001` treats it as
+  optional and continues without it; nothing in the query path uses it.
+- **Ingestion is CPU-bound on embedding.** The full corpus (3,102 pages) ran
+  over two CPU-hours without finishing. Use
+  `--include concepts tasks --versions 1.26 1.30` for a 639-page subset that
+  embeds in ~6 minutes. Whatever filter is used is recorded on the run.
+- **Ingesting a different `root` tombstones everything else in those versions.**
+  Running the fixture ingest against the real database marks ~289 real pages
+  deleted. Re-ingesting the real corpus resurrects them; see LIMITATIONS L13.
 - **torch is pulled from the CPU-only index** (`[tool.uv.sources]` in
   `backend/pyproject.toml`). The default PyPI wheel bundles CUDA (~2.5GB) that
   this project never uses.
@@ -96,26 +106,29 @@ These bit us once; they are encoded in `app/core/llm.py`.
 
 ## Where the project actually stands
 
-Every phase is implemented; nothing past Phase 0 has been *run*. Read
-`PROGRESS.md` before assuming a number exists. `experiments/` is empty, the
-README results table is empty, and `EXPERIMENTS.md` has no entries — keep them
-that way until a real run produces a real file. This is the single most
-important convention in the repo: a fabricated number destroys the only thing
-the project is trying to demonstrate.
+**Retrieval is measured; generation is not.** Seven experiments are recorded in
+`experiments/` and analysed in `EXPERIMENTS.md`, including one negative result
+(`hybrid_rerank`) that was reverted. `hybrid` is the best config: recall@5
+0.786 dev / 0.700 test, against a 0.286 / 0.100 baseline.
 
-When a database becomes available, the order is:
+Everything that calls a model has **never run** — no API key here. That means
+no correctness, faithfulness, citation-precision, abstention or judge-agreement
+number exists. Do not let one appear without a run behind it: a fabricated
+number destroys the only thing this project is trying to demonstrate.
 
-1. `make up && make ingest`
-2. `make eval CONFIG=configs/baseline.yaml SPLIT=dev MODE=retrieval`
-3. then each config in `EXPERIMENTS.md`'s queue, one at a time, recording each
-   result — including the ones that make things worse
-4. set the floors in `backend/evals/thresholds.yaml` from the baseline, so the
-   CI gate stops being decoration
-5. `make results` to regenerate the README table
+To carry on when a key is available:
 
-Generation work (`MODE=full`, golden-set generation, judging) also needs
-`ANTHROPIC_API_KEY`. `python -m evals.dataset.build --estimate` prints a cost
-estimate without spending anything, and refuses to run without `--yes`.
+1. `make db-local && make migrate`, then ingest (see the `--include` note above)
+2. `python -m evals.dataset.build --estimate` first — it prints a cost estimate
+   and refuses to spend without `--yes`
+3. `make eval CONFIG=configs/full.yaml SPLIT=dev MODE=full`
+4. `python -m evals.judge.label --count 50`, then `--report` for the kappa
+5. record every result in `EXPERIMENTS.md`, including the bad ones, and
+   `make results` to regenerate the README table
+
+Thresholds in `backend/evals/thresholds.yaml` are now set from a measured
+fixture baseline, so the CI gate can genuinely fail. Raising a floor after a
+real improvement is normal; lowering one to make a build green is not.
 
 ## Layout notes
 

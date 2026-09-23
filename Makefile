@@ -12,7 +12,7 @@ CONFIG    ?= configs/baseline.yaml
 SPLIT     ?= dev
 MODE      ?= retrieval
 
-.PHONY: help install up down restart logs ps dev migrate revision health test test-unit \
+.PHONY: help install up db-local db-local-stop down restart logs ps dev migrate revision health test test-unit \
         lint fmt typecheck check ingest eval results clean
 
 help: ## Show available targets
@@ -28,6 +28,12 @@ up: ## Start Postgres + backend, then run migrations
 	@echo "Waiting for the API to become healthy..."
 	@$(MAKE) --no-print-directory health
 	@$(MAKE) --no-print-directory migrate
+
+db-local: ## Start Postgres without Docker (pgserver wheel; no virtualization)
+	$(BACKEND) python ../scripts/local_db.py start
+
+db-local-stop: ## Stop the Docker-free Postgres
+	$(BACKEND) python ../scripts/local_db.py stop
 
 down: ## Stop the stack (data volumes survive)
 	$(COMPOSE) down

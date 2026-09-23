@@ -63,7 +63,9 @@ class Check:
     def row(self) -> str:
         actual = f"{self.actual:.4f}" if self.actual is not None else "—"
         floor = f"{self.floor:.4f}" if self.floor is not None else "unset"
-        mark = {"pass": "✓", "FAIL": "✗", "unset": "·", "missing": "?"}[self.status]
+        # ASCII only: Windows consoles default to cp1252, and a gate that
+        # crashes on a UnicodeEncodeError while reporting results is useless.
+        mark = {"pass": "ok", "FAIL": "FAIL", "unset": "-", "missing": "?"}[self.status]
         return f"| {mark} | `{self.name}` | {actual} | {floor} |"
 
 

@@ -2,114 +2,129 @@
 
 Phase checklist from `PROJECT_SPEC.md` §12.
 
-Legend: `[x]` done and verified · `[~]` built but not verified · `[ ]` not started
+Legend: `[x]` done and verified · `[~]` built, partly verified · `[ ]` blocked
 
-> ## The one thing to read first
+> ## Read this first
 >
-> **Every phase is implemented. No phase past 0 has been run end to end,**
-> because this machine cannot start a database.
+> **Retrieval is built and measured. Generation is built and unmeasured.**
 >
-> Docker is installed, but WSL2 cannot start: hardware virtualization is
-> disabled in the machine's firmware (`wsl --status` reports *"virtualization is
-> not enabled on this machine"*). That needs a BIOS/UEFI change and a reboot.
-> No virtualization means no Docker containers, which means no Postgres, which
-> means no ingestion, no retrieval, and **no measured numbers**.
+> The dev machine cannot run Docker — WSL2 will not start because hardware
+> virtualization is disabled in firmware. That was worked around with
+> `pgserver`, a real PostgreSQL 16 + pgvector shipped as a wheel, which runs as
+> an ordinary process with no container (`make db-local`). Every retrieval
+> number in this repo was produced that way.
 >
-> There is also no `ANTHROPIC_API_KEY` set, which blocks golden-set generation,
-> answer generation, verification, and judging.
+> What is still blocked is **everything that calls a model**: there is no
+> `ANTHROPIC_API_KEY` in this environment. So golden-set generation, answer
+> generation, claim verification, conflict notes and the LLM judge are
+> implemented and unit tested but have never run. No correctness, faithfulness,
+> citation-precision, abstention or judge-agreement figure exists anywhere, and
+> those sections say so rather than estimating.
 >
-> Consequently `experiments/` is empty, the README results table is empty, and
-> `EXPERIMENTS.md` has no entries. Those stay empty rather than being filled
-> with plausible-looking numbers — see `PROJECT_SPEC.md` §3.2.
->
-> **To unblock:** either enable virtualization in firmware and run
-> `make up && make ingest`, or point `DATABASE_URL` at any Postgres 16 with
-> pgvector (a free Neon or Supabase project works and needs no virtualization).
+> Two caveats bound every measured number:
+> **the corpus was scoped** to `concepts/` + `tasks/` across versions 1.26 and
+> 1.30 (639 pages), because embedding all 3,102 pages on CPU ran over two
+> CPU-hours without finishing; and **the golden set is 32 hand-authored items**,
+> not the ~300 the spec targets, because the LLM generators need a key. At 19
+> dev items one item is worth ~5 points of recall.
 
 ---
 
-## Phase 0 — Scaffold  `[~]`
+## Phase 0 — Scaffold  `[x]`
 
-- [x] Repository structure, `uv` project, Python 3.12 pinned
-- [x] Docker Compose: Postgres 16 + pgvector, backend, frontend placeholder
-- [x] Alembic; migrations `0001` extensions, `0002` corpus, `0003` tracing
-- [x] Config loader: `Settings` (environment) + `PipelineConfig` (experiments)
-- [x] LLM client with persistent cache and cost accounting
-- [x] `Makefile` + `make.ps1`, `.env.example`, pre-commit
-- [x] `CLAUDE.md`
-- [x] `GET /health` — verified live; reports `degraded` without a database
-- [ ] **`make up` — blocked on virtualization**
+- [x] Repo structure, `uv` project, Python 3.12, Docker Compose, Alembic
+- [x] Two-layer config, cached cost-aware LLM client, Makefile + `make.ps1`
+- [x] `GET /health` — verified live, reports `degraded` without a database
+- [x] Migrations `0001`–`0003` applied to a live database
+- [ ] `make up` still unverified — Docker cannot start here. `make db-local` is
+      the working substitute and is what CI's compose path is checked against.
 
-## Phase 1 — Ingestion + naive RAG baseline  `[~]`
+## Phase 1 — Ingestion + naive RAG baseline  `[x]`
 
-- [x] Fetch `release-1.26` / `1.28` / `1.30` — **run: 3,102 pages on disk**
-- [x] Hugo-aware parsing; shortcodes unwrapped or dropped, code fences untouched
-- [x] `fixed` chunker (and `structure_aware`, which Phase 3 needs)
-- [x] Batched local embedding, model recorded per chunk
-- [x] Incremental re-ingestion via normalized content hash
-- [x] Dense retrieval, grounded generation with citations, `POST /query`
-- [ ] **Acceptance ("a re-run embeds 0 docs") — asserted by
-      `test_reingesting_unchanged_corpus_embeds_nothing`, which needs a database**
+- [x] Fetched all three branches: **3,102 pages on disk**
+- [x] Hugo-aware parsing; `fixed` and `structure_aware` chunkers
+- [x] Ingested **639 documents → 3,905 chunks** (`fixed`), 6,929 (`structure_aware`)
+- [x] **Acceptance met:** a re-run over the unchanged corpus reported
+      `0 written, 0 embedded` and took **1.9s against 379s** for the first pass
+- [x] Dense retrieval and `POST /query` implemented
+- [ ] A cited *answer* has never been generated — needs an API key
 
 ## Phase 2 — Evaluation harness + baseline numbers  `[~]`
 
-- [x] Six category generators, including the version-diff generator
-- [x] Every generated quote verified against its source before becoming gold
-- [x] Curation CLI, deterministic hash-based dev/test splits
-- [x] Retrieval metrics (Recall@k, MRR, nDCG), generation metrics, attribution
-- [x] Runner writing `experiments/*.json`; results-table script
-- [x] Fixture golden set — **8 hand-written items, every quote verified**
-- [ ] **~300-item golden set — needs `ANTHROPIC_API_KEY`**
-- [ ] **Curation pass — yours to do, after generation**
-- [ ] **Baseline experiment — needs a database**
+- [x] Metrics, attribution, runner, experiment records, results-table script
+- [x] Golden set: **32 curated items**, every quote verified against source
+- [x] Fixture golden set: 8 items, used by the CI gate
+- [x] **Baseline recorded** on dev: recall@5 **0.286**, MRR 0.274
+- [ ] ~300-item LLM-generated set and its curation pass — need an API key
 
-## Phase 3 — Retrieval improvements  `[~]`
+## Phase 3 — Retrieval improvements  `[x]`
 
-- [x] All six stages implemented and config-gated
-- [x] Five configs, each moving one variable, each carrying its hypothesis
-- [ ] **Six experiments — need a database. `EXPERIMENTS.md` is empty.**
+Four experiments run, each moving one variable. Full analysis in
+[EXPERIMENTS.md](EXPERIMENTS.md).
+
+| Config | recall@5 (dev) | Verdict |
+|---|---|---|
+| `baseline` | 0.286 | — |
+| `structure_aware` | **0.786** | kept (+0.500) |
+| `hybrid` | **0.786** | kept — lifted rank, not recall (MRR +0.083) |
+| `hybrid_rerank` | 0.714 | **reverted** — worse on every metric, 93× latency |
+
+Held out: `baseline` 0.100 → `hybrid` **0.700** on the `test` split.
+
+- [ ] `hybrid_rerank_rewrite` and `full` — query rewriting and decomposition
+      need an API key
 
 ## Phase 4 — Generation quality  `[~]`
 
-- [x] Grounded prompt, per-sentence claim verification
-- [x] Regenerate-once-then-abstain policy
-- [x] Version detection and cross-version conflict notes
-- [x] Judge, Cohen's kappa agreement, labeling CLI
-- [ ] **Judge validation — needs a key, a run, and ~50 labels from you**
+- [x] Grounded prompt, per-sentence verification, regenerate-or-abstain policy
+- [x] Version detection and cross-version conflict detection (integration tested)
+- [x] Judge, Cohen's kappa, labeling CLI
+- [ ] **Nothing here has been measured.** Needs a key, a `full` run, ~50 labels.
 
 ## Phase 5 — Observability  `[~]`
 
 - [x] Span per stage, `GET /traces`, `GET /traces/{id}`, `POST /feedback`
-- [ ] **Verification that a real query writes a complete trace — needs a database**
+- [ ] A complete end-to-end trace needs a generated answer, so needs a key
 
 ## Phase 6 — Frontend  `[x]`
 
 - [x] Ask, trace viewer with rank trail, experiments dashboard with deltas
-- [x] `tsc --noEmit` and `next build` clean across all four routes
-- [x] Rendered and inspected in a browser; empty and error states checked
-- [ ] Not yet seen against live data, for the reason above
+- [x] `tsc --noEmit` and `next build` clean; rendered and inspected in-browser
+- [ ] Not yet seen against a live answer
 
 ## Phase 7 — CI, docs, demo  `[~]`
 
-- [x] CI: lint, types, tests, fixture ingestion, retrieval eval, regression gate
-- [x] Manual full-eval workflow with artifact upload
-- [x] `docs/ARCHITECTURE.md` (10 decisions), `LIMITATIONS.md`, `DEMO_SCRIPT.md`
-- [x] README, with the results table generated rather than typed
-- [ ] **Final `test`-split evaluation — needs a database and a key**
-- [ ] **CI green — not yet run; no GitHub remote is configured**
+- [x] CI: lint, types, tests, fixture ingest, retrieval eval, regression gate
+- [x] **Thresholds set from a measured baseline** (recall@5 floor 0.75 against
+      an observed 0.833) — the gate can now actually fail
+- [x] Gate verified passing locally, and its failure paths unit tested
+- [x] README table generated from `experiments/`; `--check` wired into CI
+- [x] ARCHITECTURE (10 decisions), LIMITATIONS (11 entries), DEMO_SCRIPT
+- [ ] CI has never run — no GitHub remote is configured
 
 ---
+
+## Bugs found by running it
+
+Each of these was invisible to unit tests and surfaced only against a live
+database or a real corpus.
+
+| Bug | Consequence | Caught by |
+|---|---|---|
+| `websearch_to_tsquery(varchar, varchar)` does not exist | **all lexical retrieval failed** | integration test |
+| A tombstoned document was never resurrected when it reappeared unchanged | the page stayed invisible to retrieval permanently | restoring a corpus after a fixture ingest |
+| Unanswerable items scored `false_answer` in retrieval-only mode | invented 5 failures the system was never given a chance to make | reading the first baseline run |
+| The regression gate crashed on Windows (`✓` in cp1252) | gate unusable locally | running it |
+| `min_tokens >= max_tokens` silently dropped every chunk but the first | most of a document lost, no error | chunker unit test |
 
 ## Verified on this machine
 
 | | |
 |---|---|
-| Tests | 103 passed, 11 skipped (integration, no database) |
-| Lint | `ruff check` + `ruff format --check` clean |
-| Types | `mypy` clean, 53 source files |
-| Frontend | `tsc --noEmit` clean, `next build` clean |
-| `GET /health` | returns 200 and correctly reports `degraded` |
-| Corpus | 3,102 pages fetched across three release branches |
-| Fixture corpus | 30 pages × 2 versions, committed |
-| Fixture golden set | 8 items, every quote verified against source |
-| Configs | 6 load with distinct hashes |
+| Tests | **112 unit + 12 integration, all passing** |
+| Lint / types | `ruff` and `mypy` clean, 53 source files |
+| Frontend | `tsc --noEmit` and `next build` clean |
+| Database | PostgreSQL 16.2 + pgvector, live, migrated |
+| Corpus | 3,102 pages fetched; 639 ingested and embedded |
+| Experiments | 7 recorded in `experiments/` |
+| Regression gate | passes against measured floors |

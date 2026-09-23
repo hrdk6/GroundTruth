@@ -60,6 +60,8 @@ switch ($Target) {
         @(
             @('install', 'Create the venv and install backend deps'),
             @('up', 'Start Postgres + backend, then run migrations'),
+            @('db-local', 'Start Postgres without Docker (no virtualization needed)'),
+            @('db-local-stop', 'Stop the Docker-free Postgres'),
             @('down', 'Stop the stack (data volumes survive)'),
             @('logs', 'Tail backend logs'),
             @('ps', 'Show container status'),
@@ -85,6 +87,8 @@ switch ($Target) {
         Wait-Health
         Invoke-Backend @('python', '-m', 'alembic', 'upgrade', 'head')
     }
+    'db-local' { Invoke-Backend @('python', '../scripts/local_db.py', 'start') }
+    'db-local-stop' { Invoke-Backend @('python', '../scripts/local_db.py', 'stop') }
     'down' { Invoke-Step -Command 'docker' -Arguments @('compose', 'down') }
     'restart' { Invoke-Step -Command 'docker' -Arguments @('compose', 'restart', 'backend') }
     'logs' { Invoke-Step -Command 'docker' -Arguments @('compose', 'logs', '-f', 'backend') }

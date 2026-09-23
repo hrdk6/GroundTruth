@@ -26,6 +26,7 @@ out/
 # Golden sets ARE committed (they are the curated ground truth).
 data/raw/
 data/processed/
+data/pgdata/
 data/archives/
 !data/golden/
 !data/golden/**

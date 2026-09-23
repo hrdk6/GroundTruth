@@ -1,0 +1,468 @@
+{
+  "timestamp": "2026-09-23T03:40:36.778375+00:00",
+  "mode": "retrieval",
+  "split": "dev",
+  "dataset_version": "fixture_golden",
+  "dataset_size": 8,
+  "git_sha": "bee198a23eedcce57ed3069e37ce0c2974d4485b",
+  "git_dirty": true,
+  "config": {
+    "name": "hybrid",
+    "config_hash": "b869490dcc89",
+    "chunker_name": "structure_aware-512-64",
+    "values": {
+      "name": "hybrid",
+      "description": "structure_aware chunking with dense + Postgres full-text retrieval combined by Reciprocal Rank Fusion (k=60). No reranking.\n",
+      "chunking": {
+        "chunker": "structure_aware",
+        "max_tokens": 512,
+        "overlap_tokens": 64,
+        "min_tokens": 64,
+        "prepend_heading_path": true
+      },
+      "embedding": {
+        "model": "BAAI/bge-small-en-v1.5",
+        "dimension": 384,
+        "batch_size": 64,
+        "normalize": true,
+        "query_prefix": "Represent this sentence for searching relevant passages: ",
+        "document_prefix": ""
+      },
+      "retrieval": {
+        "dense": {
+          "enabled": true,
+          "k": 20
+        },
+        "lexical": {
+          "enabled": true,
+          "k": 20,
+          "text_search_config": "english"
+        },
+        "fusion": {
+          "enabled": true,
+          "rrf_k": 60
+        },
+        "rerank": {
+          "enabled": false,
+          "model": "BAAI/bge-reranker-base",
+          "batch_size": 32
+        },
+        "query_rewrite": {
+          "enabled": false,
+          "model": null,
+          "keep_original_for_lexical": true
+        },
+        "decomposition": {
+          "enabled": false,
+          "model": null,
+          "max_subqueries": 3
+        },
+        "k_final": 5,
+        "version_filter": true
+      },
+      "generation": {
+        "model": null,
+        "prompt": "grounded_v1",
+        "max_tokens": 1024,
+        "temperature": 0.0
+      },
+      "verification": {
+        "enabled": false,
+        "model": null,
+        "support_threshold": 0.8,
+        "max_regenerations": 1
+      },
+      "versioning": {
+        "default_version": "latest",
+        "detect_from_question": true,
+        "conflict_detection": false
+      }
+    }
+  },
+  "environment": {
+    "python": "3.12.12",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "embedding_model": "BAAI/bge-small-en-v1.5"
+  },
+  "metrics": {
+    "count": 6,
+    "recall@1": 0.8333,
+    "recall@5": 0.8333,
+    "recall@10": 0.8333,
+    "mrr": 0.8333,
+    "ndcg@10": 0.8333,
+    "partial_recall@10": 0.8333,
+    "abstention_precision": null,
+    "abstention_recall": null,
+    "false_answer_rate": null
+  },
+  "metrics_by_category": {
+    "exact_term": {
+      "count": 2,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "partial_recall@10": 1.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "factual": {
+      "count": 3,
+      "recall@1": 0.6667,
+      "recall@5": 0.6667,
+      "recall@10": 0.6667,
+      "mrr": 0.6667,
+      "ndcg@10": 0.6667,
+      "partial_recall@10": 0.6667,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "table_or_code": {
+      "count": 1,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "partial_recall@10": 1.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "unanswerable": {
+      "count": 0,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0
+    }
+  },
+  "attribution": {
+    "ranking_miss": 1
+  },
+  "latency": {
+    "p50_ms": 21.37,
+    "p95_ms": 10144.15,
+    "total_seconds": 10.29
+  },
+  "cost": {
+    "calls": 0,
+    "cached_calls": 0,
+    "cache_hit_rate": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": 0.0,
+    "list_cost_usd": 0.0,
+    "by_model": {}
+  },
+  "items": [
+    {
+      "item_id": "fx-factual-001",
+      "category": "factual",
+      "question": "What unit is the memory resource measured in?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        756
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 10144.15,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 330.46,
+        "dense": 9808.18,
+        "lexical": 5.32,
+        "fusion": 0.01
+      }
+    },
+    {
+      "item_id": "fx-factual-002",
+      "category": "factual",
+      "question": "What group ID do containers get if runAsGroup is omitted?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        815,
+        816
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 20.9,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.27,
+        "dense": 17.75,
+        "lexical": 1.66,
+        "fusion": 0.01
+      }
+    },
+    {
+      "item_id": "fx-factual-003",
+      "category": "factual",
+      "question": "Which namespace do objects go into when no namespace is given?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        730,
+        739,
+        727,
+        742,
+        724
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "ranking_miss",
+      "attribution_detail": "gold was retrieved (dense rank 7) but cut",
+      "latency_ms": 20.23,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.83,
+        "dense": 17.36,
+        "lexical": 1.59,
+        "fusion": 0.01
+      }
+    },
+    {
+      "item_id": "fx-exact-001",
+      "category": "exact_term",
+      "question": "Which field sets the user ID that container processes run as?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        815,
+        820
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 23.56,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.28,
+        "dense": 20.35,
+        "lexical": 1.68,
+        "fusion": 0.01
+      }
+    },
+    {
+      "item_id": "fx-exact-002",
+      "category": "exact_term",
+      "question": "What is the kubectl command to create a namespace?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        740,
+        733,
+        744,
+        731,
+        734
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 22.61,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.89,
+        "dense": 17.84,
+        "lexical": 3.62,
+        "fusion": 0.02
+      }
+    },
+    {
+      "item_id": "fx-code-001",
+      "category": "table_or_code",
+      "question": "Which memory literals are given as representing approximately the same value?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        756,
+        957,
+        558,
+        952,
+        557
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 21.37,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.13,
+        "dense": 18.51,
+        "lexical": 1.55,
+        "fusion": 0.01
+      }
+    },
+    {
+      "item_id": "fx-unans-001",
+      "category": "unanswerable",
+      "question": "How much does a managed Kubernetes control plane cost per month on the major cloud providers?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        18840,
+        18823,
+        18835,
+        18420,
+        17975
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "latency_ms": 19.83,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.98,
+        "dense": 17.22,
+        "lexical": 1.51,
+        "fusion": 0.01
+      }
+    },
+    {
+      "item_id": "fx-unans-002",
+      "category": "unanswerable",
+      "question": "What memory limit should I set for a Spring Boot service handling 5000 requests per second?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        20647,
+        20650,
+        18182,
+        20644,
+        20325
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "latency_ms": 19.36,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.7,
+        "dense": 17.12,
+        "lexical": 1.43,
+        "fusion": 0.02
+      }
+    }
+  ]
+}

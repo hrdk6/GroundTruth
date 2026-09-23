@@ -27,6 +27,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--root", type=Path, default=None, help="Corpus root (skips downloading)")
     parser.add_argument("--no-fetch", action="store_true", help="Use already-extracted files")
+    parser.add_argument(
+        "--include",
+        nargs="*",
+        default=None,
+        help="Only ingest paths starting with these prefixes, e.g. concepts tasks",
+    )
     parser.add_argument("--fetch-only", action="store_true", help="Download and extract, then stop")
     parser.add_argument("--force-fetch", action="store_true", help="Re-download the tarballs")
     args = parser.parse_args(argv)
@@ -50,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
             versions=args.versions,
             root=args.root,
             fetch=not args.no_fetch,
+            include=args.include,
         )
 
     print(

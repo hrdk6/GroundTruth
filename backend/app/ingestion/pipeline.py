@@ -51,14 +51,17 @@ class IngestionStats:
         return asdict(self)
 
 
-def _existing_hashes(session: Session, version: str) -> dict[str, tuple[int, str]]:
-    """`source_path -> (document id, content hash)` for one version."""
+def _existing_hashes(session: Session, version: str) -> dict[str, tuple[int, str, bool]]:
+    """`source_path -> (document id, content hash, is_tombstoned)` for one version."""
     rows = session.execute(
-        select(Document.id, Document.source_path, Document.content_hash).where(
-            Document.version == version
-        )
+        select(
+            Document.id,
+            Document.source_path,
+            Document.content_hash,
+            Document.deleted_at,
+        ).where(Document.version == version)
     ).all()
-    return {row.source_path: (row.id, row.content_hash) for row in rows}
+    return {row.source_path: (row.id, row.content_hash, row.deleted_at is not None) for row in rows}
 
 
 def _upsert_document(session: Session, parsed: ParsedDocument, document_id: int | None) -> Document:
@@ -174,11 +177,18 @@ def ingest(
     root: Path | None = None,
     fetch: bool = True,
     offline_tokenizer: bool = False,
+    include: list[str] | None = None,
 ) -> IngestionStats:
     """Run one ingestion pass.
 
     `root` overrides the corpus location, which is how tests and CI ingest the
     committed fixture corpus instead of downloading the real one.
+
+    `include` restricts ingestion to documents whose `source_path` starts with
+    one of the given prefixes (e.g. `["concepts", "tasks"]`). Embedding the
+    whole corpus on CPU takes hours, and a scoped-but-real subset keeps the
+    evaluation loop usable. Whatever is ingested is recorded on the run, so a
+    result can never quietly claim more coverage than it had.
     """
     started = time.perf_counter()
     target_versions = versions or list(DEFAULT_VERSIONS)
@@ -204,9 +214,22 @@ def ingest(
             parsed = parse_file(path, root=version_root, version=version)
             if parsed is None:
                 continue
+            if include and not any(parsed.source_path.startswith(p) for p in include):
+                continue
             seen.add(parsed.source_path)
 
             record = existing.get(parsed.source_path)
+            # A tombstoned document that reappears must be resurrected even
+            # when its content is unchanged. Without this the fast path below
+            # skips it forever and retrieval, which filters on
+            # `deleted_at IS NULL`, never sees the page again.
+            if record and record[2]:
+                session.execute(
+                    update(Document).where(Document.id == record[0]).values(deleted_at=None)
+                )
+                stats.documents_updated += 1
+                continue
+
             if record and record[1] == parsed.content_hash:
                 # Unchanged content, but the requested chunker may never have
                 # run over it. Only skip when this chunking already exists.
@@ -234,8 +257,15 @@ def ingest(
                 stats.documents_added += 1
 
         # Pages that vanished from the branch are tombstoned, not deleted, so
-        # citations in older traces still resolve.
-        missing = set(existing) - seen
+        # citations in older traces still resolve. With `include` in play, a
+        # path outside the filter was never looked at and must not be treated
+        # as deleted.
+        candidates = (
+            {p for p in existing if any(p.startswith(prefix) for prefix in include)}
+            if include
+            else set(existing)
+        )
+        missing = candidates - seen
         if missing:
             result: Any = session.execute(
                 update(Document)
@@ -263,7 +293,7 @@ def ingest(
             chunks_written=stats.chunks_written,
             chunks_embedded=stats.chunks_embedded,
             duration_seconds=stats.duration_seconds,
-            meta={"embedding_model": config.embedding.model},
+            meta={"embedding_model": config.embedding.model, "include": include or []},
         )
     )
 

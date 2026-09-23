@@ -225,3 +225,59 @@ def test_conflict_detection_finds_a_cross_version_difference(ingested, db_sessio
         assert conflict.latest_version == "1.28"
         assert conflict.other_version == "1.26"
         assert conflict.similarity < 1.0
+
+
+def test_a_tombstoned_document_is_resurrected_when_it_reappears(
+    ingested, db_session, config, tmp_path
+) -> None:
+    """Regression: an unchanged page that comes back must become visible again.
+
+    Ingesting a root that omits a page tombstones it. When the page returns
+    with identical content, the unchanged-content fast path used to skip it, so
+    `deleted_at` stayed set and retrieval — which filters on
+    `deleted_at IS NULL` — never saw the page again.
+    """
+    import shutil
+
+    from sqlalchemy import func, select
+
+    from app.models import Document
+
+    full = tmp_path / "full"
+    shutil.copytree(FIXTURE_CORPUS, full)
+
+    # A corpus missing one page, to tombstone it.
+    partial = tmp_path / "partial"
+    shutil.copytree(FIXTURE_CORPUS, partial)
+    victim = sorted((partial / "1.28").rglob("*.md"))[0]
+    victim_path = victim.relative_to(partial / "1.28").as_posix()
+    victim.unlink()
+
+    ingest(db_session, config, versions=["1.28"], root=partial, fetch=False)
+    db_session.commit()
+
+    tombstoned = db_session.execute(
+        select(func.count())
+        .select_from(Document)
+        .where(
+            Document.version == "1.28",
+            Document.source_path == victim_path,
+            Document.deleted_at.is_not(None),
+        )
+    ).scalar_one()
+    assert tombstoned == 1, "removing a page should tombstone it"
+
+    # The page returns, byte-for-byte identical.
+    ingest(db_session, config, versions=["1.28"], root=full, fetch=False)
+    db_session.commit()
+
+    alive = db_session.execute(
+        select(func.count())
+        .select_from(Document)
+        .where(
+            Document.version == "1.28",
+            Document.source_path == victim_path,
+            Document.deleted_at.is_(None),
+        )
+    ).scalar_one()
+    assert alive == 1, "an unchanged page that reappears must be resurrected"

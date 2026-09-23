@@ -82,10 +82,19 @@ def classify_failure(
     answered_correctly: bool,
     abstained: bool,
     answer_version: str | None = None,
+    generation_ran: bool = True,
 ) -> Attribution:
-    """Label one evaluated item. Returns `none` when nothing went wrong."""
+    """Label one evaluated item. Returns `none` when nothing went wrong.
+
+    `generation_ran` is False for retrieval-only evaluations. In that mode no
+    answer was produced, so the abstention decision does not exist: scoring an
+    unanswerable item as `false_answer` would invent a failure the system was
+    never given the chance to make.
+    """
     # --- abstention decisions ------------------------------------------
     if not item.answerable:
+        if not generation_ran:
+            return Attribution("none", "abstention not evaluated in retrieval-only mode")
         if abstained:
             return Attribution("none", "correctly abstained")
         return Attribution("false_answer", "answered a question the docs do not cover")

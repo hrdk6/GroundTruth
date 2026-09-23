@@ -80,7 +80,10 @@ def build_table(runs: list[dict[str, Any]]) -> str:
         if any(key in run.get("metrics", {}) for run in runs)
     ]
 
-    headers = ["Config", "Split", *(h for _, h, _ in present), "Cost", "Commit"]
+    # The dataset column is not decoration: a fixture run and a golden-set
+    # run produce different numbers, and a table that hides which is which
+    # invites comparing them.
+    headers = ["Config", "Dataset", "Split", *(h for _, h, _ in present), "Cost", "Commit"]
     lines = [
         "| " + " | ".join(headers) + " |",
         "|" + "|".join(["---"] * len(headers)) + "|",
@@ -91,6 +94,7 @@ def build_table(runs: list[dict[str, Any]]) -> str:
         cost = run.get("cost", {}).get("cost_usd")
         row = [
             f"`{run.get('config', {}).get('name', '?')}`",
+            f"`{run.get('dataset_version', '?')}`",
             str(run.get("split", "?")),
             *(format_value(metrics, key, spec) for key, _, spec in present),
             f"${float(cost):.2f}" if cost is not None else "—",

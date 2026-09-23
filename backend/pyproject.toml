@@ -42,6 +42,9 @@ dev = [
     "mypy>=1.13",
     "types-pyyaml",
     "pre-commit>=4.0",
+    # A real PostgreSQL 16 + pgvector as a wheel, for machines where Docker
+    # cannot start. See scripts/local_db.py.
+    "pgserver>=0.1.4",
 ]
 
 [build-system]
