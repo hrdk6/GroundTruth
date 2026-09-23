@@ -914,3 +914,33 @@ def test_the_judge_never_sees_citation_markers(llm_client) -> None:  # type: ign
     )
     prompt = str(fake.calls[0]["prompt"])
     assert "[1]" not in prompt and ".spec.revisionHistoryLimit" in prompt
+
+
+def test_abstaining_with_half_the_evidence_is_not_a_false_abstention() -> None:
+    """Regression: abstention was judged against ANY gold in context.
+
+    A multi-hop question with one of its two pages in the context cannot be
+    answered, so declining is correct; the failure is the page that was cut.
+    """
+    page_a = gold(source_path="a.md", key_quote="alpha fact")
+    page_b = gold(source_path="b.md", key_quote="beta fact")
+    item = make_item(category="multi_hop", gold_evidence=[page_a, page_b])
+    a = make_candidate(1, source_path="a.md", text="the alpha fact is here")
+    b = make_candidate(2, source_path="b.md", text="the beta fact is here")
+    retrieval = make_retrieval([a], dense=[a, b])
+    match = match_candidates(retrieval.candidates, item.gold_evidence)
+
+    result = classify_failure(
+        item, retrieval, final_match=match, answered_correctly=False, abstained=True
+    )
+    assert result.failure == "ranking_miss"
+
+
+def test_abstaining_with_all_the_evidence_is_a_false_abstention() -> None:
+    hit = make_candidate(9, text="the kubelet restarts the container")
+    retrieval = make_retrieval([hit])
+    match = match_candidates(retrieval.candidates, [gold()])
+    result = classify_failure(
+        make_item(), retrieval, final_match=match, answered_correctly=False, abstained=True
+    )
+    assert result.failure == "false_abstention"

@@ -95,14 +95,14 @@ def classify_failure(
             return Attribution("none", "correctly abstained")
         return Attribution("false_answer", "answered a question the docs do not cover")
 
-    if abstained:
-        gold_present = bool(final_match.first_rank)
-        if gold_present:
-            return Attribution(
-                "false_abstention", "abstained although gold evidence was in the context"
-            )
-        # Abstaining without the evidence is the correct call; the failure is
-        # upstream in retrieval, so it is labelled there.
+    # *All* of it, as recall demands: a multi-hop answer with one of its two
+    # pages in context cannot be given, so declining is the right call and the
+    # failure is upstream -- labelled below as a retrieval or ranking miss, not
+    # as a model that refused evidence it had.
+    if abstained and final_match.covered() == len(item.gold_evidence):
+        return Attribution(
+            "false_abstention", "abstained although all gold evidence was in the context"
+        )
 
     if answered_correctly:
         return Attribution("none", "")
@@ -160,9 +160,6 @@ def classify_failure(
         return Attribution(
             "version_error", f"answered from {answer_version}, expected {item.version}"
         )
-
-    if abstained:
-        return Attribution("false_abstention", "gold was in context but the answer abstained")
 
     return Attribution("generation_failure", "gold was in context but the answer was wrong")
 
