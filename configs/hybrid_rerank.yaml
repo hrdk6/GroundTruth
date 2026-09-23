@@ -1,0 +1,49 @@
+# Experiment 3: add cross-encoder reranking.
+#
+# Against: hybrid. The single variable is the reranker.
+# Hypothesis: fusion produces a good candidate *set* but a mediocre ordering,
+# because neither leg ever sees the query and the chunk together. A
+# cross-encoder scores the pair jointly and should convert recall@20 into
+# recall@5 -- i.e. it should mostly fix `ranking_miss`, not `retrieval_miss`.
+#
+# Watch the cost: the reranker runs on CPU over 40 candidates per query, so
+# expect p95 latency to rise sharply. That trade-off is the finding.
+name: hybrid_rerank
+description: >
+  hybrid retrieval with a bge-reranker-base cross-encoder over the fused
+  candidates, keeping the top 5.
+
+chunking:
+  chunker: structure_aware
+  max_tokens: 512
+  overlap_tokens: 64
+  min_tokens: 64
+  prepend_heading_path: true
+
+embedding:
+  model: BAAI/bge-small-en-v1.5
+  dimension: 384
+  batch_size: 64
+  normalize: true
+
+retrieval:
+  dense: {enabled: true, k: 20}
+  lexical: {enabled: true, k: 20, text_search_config: english}
+  fusion: {enabled: true, rrf_k: 60}
+  rerank: {enabled: true, model: BAAI/bge-reranker-base, batch_size: 32}
+  query_rewrite: {enabled: false}
+  decomposition: {enabled: false}
+  k_final: 5
+  version_filter: true
+
+generation:
+  prompt: grounded_v1
+  max_tokens: 1024
+
+verification:
+  enabled: false
+
+versioning:
+  default_version: latest
+  detect_from_question: true
+  conflict_detection: false

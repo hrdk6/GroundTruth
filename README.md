@@ -108,6 +108,7 @@ frontend/           Next.js chat, trace viewer, experiments dashboard (Phase 6)
 The corpus is the [Kubernetes documentation](https://github.com/kubernetes/website)
 (`content/en/docs/` from branches `release-1.26`, `release-1.28`, `release-1.30`),
 used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-Copyright belongs to the Kubernetes authors. No documentation content is
-redistributed in this repository — `data/raw/` is gitignored and fetched at
-ingestion time.
+Copyright belongs to the Kubernetes authors. The full corpus is fetched at
+ingestion time into `data/raw/`, which is gitignored. A 30-page excerpt is
+committed under `backend/tests/fixtures/corpus/` so CI can run ingestion and a
+retrieval evaluation without a 750MB download; see the `NOTICE.md` there.

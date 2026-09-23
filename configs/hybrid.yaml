@@ -1,0 +1,49 @@
+# Experiment 2: add lexical retrieval and fuse with RRF.
+#
+# Against: structure_aware. The single variable is the lexical leg + fusion.
+# Hypothesis: dense retrieval fails on exact strings -- API field names, flags,
+# error messages -- because an embedding of `terminationGracePeriodSeconds` is
+# not close to an embedding of a question about it. Lexical search finds those
+# by literal match. Expect the gain concentrated in `exact_term`.
+#
+# Fusion is RRF rather than a weighted score sum: cosine similarity (0-1) and
+# ts_rank_cd (unbounded) are not comparable, so only rank is meaningful.
+name: hybrid
+description: >
+  structure_aware chunking with dense + Postgres full-text retrieval combined
+  by Reciprocal Rank Fusion (k=60). No reranking.
+
+chunking:
+  chunker: structure_aware
+  max_tokens: 512
+  overlap_tokens: 64
+  min_tokens: 64
+  prepend_heading_path: true
+
+embedding:
+  model: BAAI/bge-small-en-v1.5
+  dimension: 384
+  batch_size: 64
+  normalize: true
+
+retrieval:
+  dense: {enabled: true, k: 20}
+  lexical: {enabled: true, k: 20, text_search_config: english}
+  fusion: {enabled: true, rrf_k: 60}
+  rerank: {enabled: false}
+  query_rewrite: {enabled: false}
+  decomposition: {enabled: false}
+  k_final: 5
+  version_filter: true
+
+generation:
+  prompt: grounded_v1
+  max_tokens: 1024
+
+verification:
+  enabled: false
+
+versioning:
+  default_version: latest
+  detect_from_question: true
+  conflict_detection: false

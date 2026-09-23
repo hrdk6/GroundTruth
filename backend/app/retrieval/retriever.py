@@ -43,6 +43,7 @@ from app.retrieval.stages import (
     reciprocal_rank_fusion,
 )
 from app.retrieval.versioning import VersionDecision, indexed_versions, resolve_version
+from app.tracing.tracer import Tracer
 
 log = get_logger(__name__)
 
@@ -74,7 +75,7 @@ class Retriever:
         question: str,
         *,
         version: str | None = None,
-        trace: object | None = None,
+        tracer: Tracer | None = None,
     ) -> tuple[RetrievalResult, VersionDecision]:
         timings: dict[str, float] = {}
         stage_outputs: dict[str, list[Candidate]] = {}
@@ -82,11 +83,28 @@ class Retriever:
 
         @contextmanager
         def timed(name: str) -> Iterator[None]:
+            """Time a stage, and record it as a span when tracing is on."""
             started = time.perf_counter()
-            try:
-                yield
-            finally:
-                timings[name] = (time.perf_counter() - started) * 1000
+            if tracer is None:
+                try:
+                    yield
+                finally:
+                    timings[name] = (time.perf_counter() - started) * 1000
+                return
+
+            with tracer.span(name, query=question, version=version) as span:
+                try:
+                    yield
+                finally:
+                    elapsed = (time.perf_counter() - started) * 1000
+                    timings[name] = elapsed
+                    produced = stage_outputs.get(name)
+                    if produced is not None:
+                        span.output = {
+                            "count": len(produced),
+                            "top": [c.to_dict(include_text=False) for c in produced[:10]],
+                        }
+                    span.attributes["duration_ms"] = round(elapsed, 2)
 
         # --- 1. version ---------------------------------------------------
         with timed("version_detection"):

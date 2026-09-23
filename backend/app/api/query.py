@@ -18,6 +18,7 @@ from app.core.settings import REPO_ROOT
 from app.generation.answer import AnswerService
 from app.models import Feedback
 from app.retrieval.versioning import indexed_versions
+from app.tracing.tracer import Tracer
 
 router = APIRouter(tags=["query"])
 log = get_logger(__name__)
@@ -76,8 +77,11 @@ async def query(
     def run() -> Any:
         from app.core.db import session_scope
 
+        tracer = Tracer(request.question, config_name=config.name, config_hash=config.config_hash)
         with session_scope() as sync_session:
-            return service.answer(sync_session, request.question, version=request.version)
+            return service.answer(
+                sync_session, request.question, version=request.version, tracer=tracer
+            )
 
     import anyio
 
@@ -97,7 +101,7 @@ async def query(
         conflicts=result.conflicts,
         verification=result.verification,
         abstained=result.abstained,
-        trace_id=getattr(result, "trace_id", None),
+        trace_id=result.trace_id,
         latency_ms=round(result.latency_ms, 2),
         cost_usd=round(result.cost_usd, 6),
     )

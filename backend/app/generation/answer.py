@@ -36,6 +36,7 @@ from app.retrieval.versioning import (
     detect_conflicts,
     indexed_versions,
 )
+from app.tracing.tracer import Tracer
 
 log = get_logger(__name__)
 
@@ -71,6 +72,7 @@ class AnswerResult:
     abstained: bool = False
     regenerated: bool = False
     retrieval: RetrievalResult | None = None
+    trace_id: str | None = None
     cost_usd: float = 0.0
     latency_ms: float = 0.0
     timings_ms: dict[str, float] = field(default_factory=dict)
@@ -85,6 +87,7 @@ class AnswerResult:
             "verification": self.verification,
             "abstained": self.abstained,
             "regenerated": self.regenerated,
+            "trace_id": self.trace_id,
             "cost_usd": round(self.cost_usd, 6),
             "latency_ms": round(self.latency_ms, 2),
             "timings_ms": {k: round(v, 2) for k, v in self.timings_ms.items()},
@@ -164,19 +167,40 @@ class AnswerService:
         question: str,
         *,
         version: str | None = None,
+        tracer: Tracer | None = None,
     ) -> AnswerResult:
         import time
 
         started = time.perf_counter()
         cost_before = self.llm.tracker.cost_usd
+        tokens_before = self.llm.tracker.input_tokens + self.llm.tracker.output_tokens
 
-        retrieval, decision = self.retriever.retrieve(session, question, version=version)
-        result = self._generate_and_verify(session, question, retrieval, decision)
+        retrieval, decision = self.retriever.retrieve(
+            session, question, version=version, tracer=tracer
+        )
+        result = self._generate_and_verify(session, question, retrieval, decision, tracer=tracer)
 
         result.retrieval = retrieval
         result.timings_ms = {**retrieval.timings_ms, **result.timings_ms}
         result.latency_ms = (time.perf_counter() - started) * 1000
         result.cost_usd = self.llm.tracker.cost_usd - cost_before
+
+        if tracer is not None:
+            tokens = self.llm.tracker.input_tokens + self.llm.tracker.output_tokens - tokens_before
+            result.trace_id = tracer.flush(
+                session,
+                answer=result.answer,
+                abstained=result.abstained,
+                version_used=result.version_used,
+                latency_ms=result.latency_ms,
+                cost_usd=result.cost_usd,
+                total_tokens=tokens,
+                meta={
+                    "citations": len(result.citations),
+                    "conflicts": len(result.conflicts),
+                    "regenerated": result.regenerated,
+                },
+            )
         return result
 
     def _generate_and_verify(
@@ -185,6 +209,7 @@ class AnswerService:
         question: str,
         retrieval: RetrievalResult,
         decision: VersionDecision,
+        tracer: Tracer | None = None,
     ) -> AnswerResult:
         import time
 
@@ -203,7 +228,13 @@ class AnswerService:
         verification_config = self.config.verification
 
         started = time.perf_counter()
-        answer_text = self._generate(question, candidates, decision.version)
+        if tracer is not None:
+            with tracer.span("generation", question=question, excerpts=len(candidates)) as span:
+                answer_text = self._generate(question, candidates, decision.version)
+                span.output = {"answer": answer_text}
+                span.attributes["model"] = self.config.generation.model or self.llm.default_model
+        else:
+            answer_text = self._generate(question, candidates, decision.version)
         timings["generation"] = (time.perf_counter() - started) * 1000
 
         report = VerificationReport()

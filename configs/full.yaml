@@ -1,0 +1,51 @@
+# Experiment 5 / the shipping configuration.
+#
+# Against: whichever retrieval config won Phase 3. Adds everything from Phase 4:
+# multi-hop decomposition, claim verification with regenerate-or-abstain, and
+# cross-version conflict detection.
+#
+# Only turn decomposition on if the Phase 3 experiment showed it helping
+# `multi_hop` more than it hurt everything else -- splitting a single-hop
+# question dilutes the candidate set with off-topic chunks.
+name: full
+description: >
+  The complete pipeline: structure-aware chunking, hybrid retrieval with RRF,
+  cross-encoder reranking, query rewriting, multi-hop decomposition, grounded
+  generation with per-sentence claim verification, and version conflict notes.
+
+chunking:
+  chunker: structure_aware
+  max_tokens: 512
+  overlap_tokens: 64
+  min_tokens: 64
+  prepend_heading_path: true
+
+embedding:
+  model: BAAI/bge-small-en-v1.5
+  dimension: 384
+  batch_size: 64
+  normalize: true
+
+retrieval:
+  dense: {enabled: true, k: 20}
+  lexical: {enabled: true, k: 20, text_search_config: english}
+  fusion: {enabled: true, rrf_k: 60}
+  rerank: {enabled: true, model: BAAI/bge-reranker-base, batch_size: 32}
+  query_rewrite: {enabled: true, keep_original_for_lexical: true}
+  decomposition: {enabled: true, max_subqueries: 3}
+  k_final: 6
+  version_filter: true
+
+generation:
+  prompt: grounded_v1
+  max_tokens: 1024
+
+verification:
+  enabled: true
+  support_threshold: 0.8
+  max_regenerations: 1
+
+versioning:
+  default_version: latest
+  detect_from_question: true
+  conflict_detection: true
