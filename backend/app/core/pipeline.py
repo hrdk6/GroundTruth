@@ -89,6 +89,12 @@ class EmbeddingConfig(_Frozen):
 class DenseConfig(_Frozen):
     enabled: bool = True
     k: int = Field(default=20, gt=0)
+    # HNSW candidate list size per query. pgvector applies the chunk-set and
+    # version filters *after* the index scan, so this must be large enough
+    # that k matching rows survive the filter. Too small and dense retrieval
+    # silently returns fewer than k (see `dense_search`, which also falls
+    # back to an exact scan). An experiment variable: it changes recall.
+    ef_search: int = Field(default=200, ge=1, le=1000)
 
 
 class LexicalConfig(_Frozen):

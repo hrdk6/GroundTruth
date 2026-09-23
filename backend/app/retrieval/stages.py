@@ -4,16 +4,24 @@ Each is a plain function over `Candidate` lists so the orchestrator in
 `retriever.py` can switch one on or off from config, and so each stage can be
 tested without a pipeline around it.
 
-The version filter is applied **in SQL**, as a pre-filter. Filtering after
-retrieval would silently shrink `k`: ask for 20 chunks about 1.26, get 20 across
-all versions, discard 14, and retrieve with 6. Pre-filtering keeps `k` honest.
+The version and chunk-set filters are applied **in SQL**, because filtering
+after retrieval silently shrinks `k`: ask for 20 chunks about 1.26, get 20
+across all versions, discard 14, and retrieve with 6.
+
+SQL alone does not make that true for the dense leg, though. An HNSW index scan
+in pgvector < 0.8 returns only its `ef_search` nearest neighbours (default 40)
+from the *whole* index, and the `WHERE` clause filters those -- so it is a
+post-filter after all. With several chunk sets and versions sharing one index,
+a query matching 10% of rows got back about 4 of the 20 chunks it asked for,
+and nothing reported it. `dense_search` therefore widens `ef_search` per query
+and falls back to an exact scan when the index still comes back short.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Float, Select, and_, bindparam, cast, func, literal, select
+from sqlalchemy import Float, Select, and_, bindparam, cast, func, literal, select, text
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.orm import Session
 
@@ -76,7 +84,7 @@ def dense_search(
     version: str | None = None,
     k: int | None = None,
 ) -> list[Candidate]:
-    """Cosine similarity over the HNSW index."""
+    """Cosine similarity over the HNSW index, guaranteed to return `k` when `k` exist."""
     limit = k or config.retrieval.dense.k
 
     # pgvector exposes distance; similarity is 1 - distance for cosine.
@@ -89,7 +97,30 @@ def dense_search(
         .limit(limit)
     )
 
+    # SET LOCAL takes no bind parameters; the value is a validated int.
+    ef_search = max(int(config.retrieval.dense.ef_search), limit)
+    session.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
     rows = session.execute(statement).all()
+
+    if len(rows) < limit:
+        # The index scan came back short -- the filters rejected most of its
+        # candidates -- or there really are fewer than `limit` matching rows.
+        # An exact scan answers both, and at this corpus size costs tens of
+        # milliseconds. Logged, because a frequent fallback means ef_search is
+        # too small for how many chunk sets share the index.
+        session.execute(text("SET LOCAL enable_indexscan = off"))
+        exact = session.execute(statement).all()
+        session.execute(text("SET LOCAL enable_indexscan = on"))
+        if len(exact) > len(rows):
+            log.info(
+                "dense.exact_fallback",
+                ann_rows=len(rows),
+                exact_rows=len(exact),
+                limit=limit,
+                ef_search=ef_search,
+            )
+            rows = exact
+
     return [
         _to_candidate(row, "dense", 1.0 - float(row.distance), rank)
         for rank, row in enumerate(rows, start=1)

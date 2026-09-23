@@ -505,3 +505,32 @@ def test_a_failed_query_still_leaves_a_trace(ingested, db_session, monkeypatch) 
     assert trace["status"] == "error"
     assert trace["meta"]["error"] == "RuntimeError"
     assert [s["status"] for s in trace["spans"]] == ["error"]
+
+
+def test_dense_search_returns_k_even_when_filters_reject_most_of_the_index(
+    ingested, db_session, config
+) -> None:
+    """Regression: HNSW filters *after* the index scan in pgvector < 0.8.
+
+    With ef_search at its default of 40 and several chunk sets and versions in
+    one index, a filtered query came back with a fraction of the k it asked
+    for. The baseline's dense leg returned 16 of 20 on the real corpus.
+    """
+    from app.ingestion.embed import get_embedder
+
+    baseline = load_config("baseline")  # a second chunk set in the same index
+    if baseline.chunker_name != config.chunker_name:
+        ingest(db_session, baseline, versions=FIXTURE_VERSIONS, root=FIXTURE_CORPUS, fetch=False)
+        db_session.commit()
+
+    matching = db_session.execute(
+        select(func.count())
+        .select_from(Chunk)
+        .where(Chunk.chunker_name == config.chunker_name, Chunk.version == "1.26")
+    ).scalar_one()
+    k = min(60, matching)
+    vector = get_embedder(config.embedding).embed_query("resource limits for containers")
+    hits = dense_search(db_session, vector, config, version="1.26", k=k)
+
+    assert len(hits) == k
+    assert {c.version for c in hits} == {"1.26"}
