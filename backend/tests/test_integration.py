@@ -615,3 +615,25 @@ def test_an_edit_reaches_every_chunk_set_not_just_the_first(
     for chunker_config in (config, baseline):  # restore the shared corpus
         ingest(db_session, chunker_config, versions=["1.28"], root=FIXTURE_CORPUS, fetch=False)
         db_session.commit()
+
+
+def test_the_runner_writes_a_complete_honest_record(ingested, db_session, config) -> None:
+    """End to end over the fixture index: the record the README is built from."""
+    from evals.runner import evaluate
+
+    dataset = load_dataset("fixture_golden.jsonl")
+    record = evaluate(db_session, config, dataset, mode="retrieval", split="all", progress=False)
+
+    assert record["split"] == "all", "the requested split, not the first item's"
+    assert record["version_hint"] is False
+    assert record["integrity"]["recall_ceiling"] == 1.0
+    metrics = record["metrics"]
+    assert metrics["recall@10"] >= metrics["recall@5"] >= metrics["recall@1"]
+    assert "context_recall" in metrics
+    assert set(record["confidence"]) >= {"recall@5", "mrr"}
+    assert record["ranking"]["median_ranked_depth"] > config.retrieval.k_final
+
+    answerable = [i for i in record["items"] if i["answerable"]]
+    # No version was passed, so every item's version came from detection or
+    # the latest-version default -- here the fixture's newest, 1.28.
+    assert {i["version_used"] for i in answerable} == {"1.28"}

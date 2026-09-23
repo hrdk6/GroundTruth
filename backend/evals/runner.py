@@ -261,8 +261,17 @@ def evaluate(
     limit: int | None = None,
     progress: bool = True,
     split: str | None = None,
+    version_hint: bool = False,
 ) -> dict[str, Any]:
-    """Run one experiment and return the record that gets written to disk."""
+    """Run one experiment and return the record that gets written to disk.
+
+    By default the pipeline resolves the version from the question, as it does
+    for a real user. `version_hint` passes each item's expected version as an
+    explicit request instead -- which is what every run did before the audit,
+    and which made `version_correctness` a tautology (the system was told the
+    answer) and switched conflict detection off (it only runs when no version
+    was requested).
+    """
     started = time.perf_counter()
     settings = get_settings()
     items = dataset.items[:limit] if limit else dataset.items
@@ -301,6 +310,7 @@ def evaluate(
         item_started = time.perf_counter()
         cost_before = tracker.cost_usd
 
+        requested = item.version if version_hint else None
         result = ItemResult(
             item_id=item.id,
             category=item.category,
@@ -311,7 +321,7 @@ def evaluate(
         )
 
         if mode == "full" and service is not None:
-            answer_result = service.answer(session, item.question, version=item.version)
+            answer_result = service.answer(session, item.question, version=requested)
             retrieval = answer_result.retrieval
             assert retrieval is not None
             # What a reader of the text gets, version note included: that is
@@ -338,7 +348,7 @@ def evaluate(
             result.citation_precision = verification.get("citation_precision")
             result.stage_timings_ms = answer_result.timings_ms
         else:
-            retrieval, decision = retriever.retrieve(session, item.question, version=item.version)
+            retrieval, decision = retriever.retrieve(session, item.question, version=requested)
             result.version_used = decision.version
             result.stage_timings_ms = retrieval.timings_ms
 
@@ -415,6 +425,7 @@ def evaluate(
         "split": split or (items[0].split if items else "unknown"),
         "dataset_version": dataset.version,
         "dataset_size": len(items),
+        "version_hint": version_hint,
         "git_sha": git_sha(),
         "git_dirty": git_is_dirty(),
         "config": config.to_record(),
@@ -534,6 +545,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N items")
     parser.add_argument("--no-write", action="store_true", help="Do not write an experiment file")
     parser.add_argument(
+        "--version-hint",
+        action="store_true",
+        help="Pass each item's version as an explicit request (disables version detection)",
+    )
+    parser.add_argument(
         "--include-uncurated",
         action="store_true",
         help="Include uncurated items (never do this for a reported result)",
@@ -571,7 +587,13 @@ def main(argv: list[str] | None = None) -> int:
 
     with session_scope() as session:
         record = evaluate(
-            session, config, dataset, mode=args.mode, limit=args.limit, split=args.split
+            session,
+            config,
+            dataset,
+            mode=args.mode,
+            limit=args.limit,
+            split=args.split,
+            version_hint=args.version_hint,
         )
 
     print_summary(record)
