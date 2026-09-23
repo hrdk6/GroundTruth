@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 import time
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -262,62 +262,57 @@ class AnswerService:
             )
 
         verification_config = self.config.verification
+        model = self.config.generation.model or llm.default_model
 
         started = time.perf_counter()
-        if tracer is not None:
-            with tracer.span("generation", question=question, excerpts=len(candidates)) as span:
-                answer_text = self._generate(llm, question, candidates, decision.version)
-                span.output = {"answer": answer_text}
-                span.attributes["model"] = self.config.generation.model or llm.default_model
-        else:
+        with _span(tracer, "generation", question=question, excerpts=len(candidates)) as span:
             answer_text = self._generate(llm, question, candidates, decision.version)
-        timings["generation"] = (time.perf_counter() - started) * 1000
+            if span is not None:
+                span.output = {"answer": answer_text}
+                span.attributes["model"] = model
+        timings["generation"] = _elapsed_ms(started)
 
         report = VerificationReport()
         regenerated = False
 
         if verification_config.enabled and not is_abstention(answer_text):
-            started = time.perf_counter()
-            # A span of its own: verification is often the slowest stage (one
-            # model call per factual sentence), and a trace without it hides
-            # where most of the latency went.
-            span_context = tracer.span("verification") if tracer is not None else nullcontext()
-            with span_context as span:
-                report = verify_answer(
-                    llm, answer_text, candidates, model=verification_config.model
-                )
+            report = self._verify(llm, answer_text, candidates, tracer=tracer, timings=timings)
 
-                if (
-                    report.support_fraction < verification_config.support_threshold
-                    and verification_config.max_regenerations > 0
-                ):
-                    log.info(
-                        "answer.regenerating",
-                        support_fraction=round(report.support_fraction, 3),
-                        threshold=verification_config.support_threshold,
-                    )
+            if (
+                report.support_fraction < verification_config.support_threshold
+                and verification_config.max_regenerations > 0
+            ):
+                log.info(
+                    "answer.regenerating",
+                    support_fraction=round(report.support_fraction, 3),
+                    threshold=verification_config.support_threshold,
+                )
+                # Its own span, not part of verification's: a retry is a
+                # generation call, and folding it into the verification span
+                # booked its latency to the wrong stage and hid the rejected
+                # draft's replacement from the trace.
+                started = time.perf_counter()
+                with _span(
+                    tracer, "regeneration", support_fraction=round(report.support_fraction, 4)
+                ) as span:
                     retry = self._generate(
                         llm, question, candidates, decision.version, feedback=report.feedback()
                     )
-                    regenerated = True
-                    if is_abstention(retry):
-                        answer_text, report = retry, VerificationReport()
-                    else:
-                        retry_report = verify_answer(
-                            llm, retry, candidates, model=verification_config.model
-                        )
-                        # Keep the retry only if it is actually better.
-                        if retry_report.support_fraction >= report.support_fraction:
-                            answer_text, report = retry, retry_report
+                    if span is not None:
+                        span.output = {"answer": retry}
+                        span.attributes["model"] = model
+                timings["generation"] += _elapsed_ms(started)
+                regenerated = True
 
-                if span is not None:
-                    span.output = {
-                        "support_fraction": round(report.support_fraction, 4),
-                        "checked": report.checked,
-                        "unsupported": len(report.unsupported),
-                        "regenerated": regenerated,
-                    }
-            timings["verification"] = (time.perf_counter() - started) * 1000
+                if is_abstention(retry):
+                    answer_text, report = retry, VerificationReport()
+                else:
+                    retry_report = self._verify(
+                        llm, retry, candidates, tracer=tracer, timings=timings, baseline=report
+                    )
+                    # Keep the retry only if it is actually better.
+                    if retry_report.support_fraction >= report.support_fraction:
+                        answer_text, report = retry, retry_report
 
         abstained = is_abstention(answer_text)
         if (
@@ -372,6 +367,37 @@ class AnswerService:
             timings_ms=timings,
         )
 
+    def _verify(
+        self,
+        llm: LLMClient,
+        answer_text: str,
+        candidates: list[Candidate],
+        *,
+        tracer: Tracer | None,
+        timings: dict[str, float],
+        baseline: VerificationReport | None = None,
+    ) -> VerificationReport:
+        """One verification pass in its own span; `baseline` marks a retry's."""
+        started = time.perf_counter()
+        # A span of its own: verification is often the slowest stage (one
+        # model call per factual sentence), and a trace without it hides
+        # where most of the latency went.
+        attempt = 1 if baseline is None else 2
+        with _span(tracer, "verification", attempt=attempt) as span:
+            report = verify_answer(
+                llm, answer_text, candidates, model=self.config.verification.model
+            )
+            if span is not None:
+                span.output = {
+                    "support_fraction": round(report.support_fraction, 4),
+                    "checked": report.checked,
+                    "unsupported": len(report.unsupported),
+                }
+                if baseline is not None:
+                    span.output["kept"] = report.support_fraction >= baseline.support_fraction
+        timings["verification"] = timings.get("verification", 0.0) + _elapsed_ms(started)
+        return report
+
     def _generate(
         self,
         llm: LLMClient,
@@ -396,3 +422,12 @@ class AnswerService:
             temperature=self.config.generation.temperature,
         )
         return response.text.strip()
+
+
+def _span(tracer: Tracer | None, name: str, **inputs: Any) -> AbstractContextManager[Any]:
+    """A tracer span, or a no-op when the caller is not tracing (evals)."""
+    return tracer.span(name, **inputs) if tracer is not None else nullcontext()
+
+
+def _elapsed_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000

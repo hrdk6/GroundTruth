@@ -114,7 +114,7 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
       locally end to end against a fresh, migrated database; the gate passes
 - [x] README table generated from `experiments/`; `--check` wired into CI
 - [x] ARCHITECTURE (18 decisions), LIMITATIONS (25 entries), DEMO_SCRIPT
-- [x] **A fresh clone installs, lints, type-checks, passes all 255 tests, and
+- [x] **A fresh clone installs, lints, type-checks, passes all 256 tests, and
       builds the frontend** — which it could not before the audit, because
       `.gitignore` had kept `backend/app/models/` out of every commit
 - [ ] CI has never run on GitHub — no remote is configured
@@ -152,13 +152,14 @@ were found by it.
 | The Next.js dev proxy gave up after 30 s | a `full` answer that regenerated (41–55 s) finished on the server and showed as a 500 | asking the demo question in the browser |
 | Segments were whitespace-collapsed for display too | a YAML example rendered as one line of literal backticks | reading an answer |
 | An experiment's detail lacked `config_name` | the comparison view named neither run | checking the page at phone width |
+| A regeneration ran inside the verification span | its latency booked to verification; the retry's text absent from the trace | a trace with one generation span for an answer generated twice |
 | The demo's conflict question cited an unchanged section, from a tutorial outside the corpus | beat 1 of the demo showed no conflict panel | rehearsing the demo |
 
 ## Verified on this machine
 
 | | |
 |---|---|
-| Tests | **255 (230 unit + 25 integration), all passing** — in the repo *and* in a fresh clone |
+| Tests | **256 (231 unit + 25 integration), all passing** — in the repo *and* in a fresh clone |
 | Lint / types | `ruff` and `mypy` clean, 58 source files |
 | Frontend | `tsc --noEmit` and `next build` clean, fresh clone |
 | Database | PostgreSQL 16.2 + pgvector 0.6.2 via `pgserver`, migrations from empty |

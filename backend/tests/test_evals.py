@@ -929,6 +929,67 @@ def test_conflicts_are_checked_only_for_the_sections_the_answer_cites(
     assert checked == [2]
 
 
+class _DraftThenRetry:
+    """Generation: an unsupported draft, then a supported retry. Verification:
+    supports claims mentioning 'alpha'."""
+
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.generations = 0
+
+    def invoke(self, **kwargs: object):  # type: ignore[no-untyped-def]
+        from app.core.llm import ProviderResult
+
+        prompt = str(kwargs["prompt"])
+        if "Claim:" in prompt:
+            verdict = "supported" if "alpha" in prompt.split("Claim:", 1)[1] else "unsupported"
+            return ProviderResult(
+                text=f'{{"verdict": "{verdict}"}}', input_tokens=10, output_tokens=5
+            )
+        self.generations += 1
+        text = (
+            "The beta widget is configured per node [1]."
+            if self.generations == 1
+            else "The alpha widget is configured per pod [1]."
+        )
+        return ProviderResult(text=text, input_tokens=10, output_tokens=5)
+
+
+def test_a_regeneration_gets_its_own_span(llm_client) -> None:  # type: ignore[no-untyped-def]
+    """Regression: the retry ran inside the first verification span, so its
+    generation latency was booked to verification and the trace never showed
+    the answer that replaced the rejected draft."""
+    from app.core.pipeline import load_config
+    from app.generation.answer import AnswerService
+    from app.retrieval.versioning import VersionDecision
+    from app.tracing.tracer import Tracer
+
+    llm_client._client = _DraftThenRetry()
+    service = AnswerService(load_config("full"), llm_client=llm_client)
+    tracer = Tracer("q")
+    result = service._generate_and_verify(
+        None,  # type: ignore[arg-type]
+        "q",
+        RetrievalResult(candidates=[make_candidate(1)], query="q"),
+        VersionDecision("1.30", explicit=True),
+        llm=llm_client,
+        tracer=tracer,
+    )
+
+    assert [s.name for s in tracer.spans] == [
+        "generation",
+        "verification",
+        "regeneration",
+        "verification",
+    ]
+    assert "beta" in tracer.spans[0].output["answer"]
+    assert "alpha" in tracer.spans[2].output["answer"]
+    assert tracer.spans[3].output["kept"] is True
+    assert result.regenerated and "alpha" in result.answer
+    assert set(result.timings_ms) >= {"generation", "verification"}
+
+
 def test_the_judge_never_sees_citation_markers(llm_client) -> None:  # type: ignore[no-untyped-def]
     """Regression: `.spec.revisionHistoryLimit[1][2]` was docked for "incorrect indices"."""
     from evals.judge.judge import judge_answer, strip_citations
