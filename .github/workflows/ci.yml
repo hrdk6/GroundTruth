@@ -68,6 +68,12 @@ jobs:
         working-directory: backend
         run: uv run python -m mypy app evals
 
+      # Before any evaluation below writes a record: this checks the records
+      # that are committed. Run after the fixture eval, it compared the README
+      # with CI's own fresh run and failed every build.
+      - name: README results table is generated, not hand-edited
+        run: python3 scripts/generate_results_table.py --check
+
       - name: Migrate
         working-directory: backend
         run: uv run python -m alembic upgrade head
@@ -99,9 +105,6 @@ jobs:
       - name: Check against thresholds
         working-directory: backend
         run: uv run python -m evals.gate
-
-      - name: README results table is generated, not hand-edited
-        run: python scripts/generate_results_table.py --check
 
   frontend:
     name: Frontend — types and build
