@@ -23,6 +23,9 @@ dependencies = [
     "tenacity>=9.0",
     # --- LLM ---
     "anthropic>=1.0",
+    # Any OpenAI-compatible endpoint (NVIDIA NIM, Groq, OpenRouter, Ollama),
+    # which is how this project is evaluated without a paid key.
+    "openai>=1.60",
     # --- ML: embeddings + cross-encoder reranking (local, CPU) ---
     "sentence-transformers>=3.3",
     "torch>=2.5",

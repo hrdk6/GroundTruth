@@ -159,3 +159,25 @@ regression-tested), but the surprise remains.
 
 **Fix.** Use a separate database for fixture runs, or scope tombstoning to the
 `include` filter as well as the root.
+
+### L14 — Smart App Control blocks freshly written binaries
+
+Windows Smart App Control is **enforced** on the dev machine. It blocks
+binaries it does not recognise, and "does not recognise" includes any file
+newly written to disk — so reinstalling a package can break it even though the
+same package worked minutes earlier.
+
+It first showed up on the venv's `.exe` console shims (`os error 4551`), which
+is why all tooling runs as `python -m <tool>`. It later blocked
+`torch/lib/torch_python.dll` after a `uv sync` rewrote the file, which stops
+anything that embeds: ingestion, retrieval evals, and the integration tests.
+Those had all run green beforehand.
+
+**Fix.** A reboot often lets the reputation check settle. Otherwise the
+alternatives are to disable Smart App Control — which cannot be re-enabled
+without reinstalling Windows, so it is a real decision, not a toggle — or to
+run the project on a machine or CI runner without it. CI is unaffected.
+
+**Not affected by this:** anything that does not load torch, including
+`make llm-check` and the whole LLM provider path, so a provider can still be
+configured and verified while embedding is blocked.

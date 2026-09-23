@@ -1,4 +1,4 @@
-"""The single door to the Anthropic API.
+"""The single door to whichever LLM provider is configured.
 
 Everything that talks to a model goes through `LLMClient` - generation, the
 judge, query rewriting, claim verification. That is a deliberate constraint from
@@ -10,9 +10,14 @@ PROJECT_SPEC.md S3.4, and it buys three things:
 2. **Honest cost accounting.** Every call records tokens and dollars, so a
    per-query cost lands in the trace and a per-run total lands in the
    experiment file. Nothing is estimated after the fact.
-3. **One place for model quirks.** Current models reject parameters that older
-   ones required (see `_supports_temperature`), and getting that wrong is a
-   400 at request time rather than a type error.
+3. **One place for model quirks.** Current Claude models reject parameters
+   that older ones required (see `_supports_temperature`), and getting that
+   wrong is a 400 at request time rather than a type error.
+4. **One place to swap backends.** `GT_LLM_PROVIDER` selects Anthropic (the
+   default, per PROJECT_SPEC.md S4) or any OpenAI-compatible endpoint, so the
+   harness can be run on a free tier. The provider is part of the cache key
+   and is recorded on every experiment, so results stay attributable to the
+   model that produced them.
 
 Cache semantics worth knowing: a cache *hit* reports `cost_usd == 0.0` because
 no money changed hands, while `list_cost_usd` keeps what the call would have
@@ -245,10 +250,155 @@ class LLMCache:
 
 
 # ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ProviderResult:
+    """What a provider returns, normalized across backends."""
+
+    text: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    stop_reason: str | None = None
+    request_id: str | None = None
+
+
+class AnthropicProvider:
+    """The Anthropic Messages API. The default, per PROJECT_SPEC.md §4."""
+
+    name = "anthropic"
+
+    def __init__(self, api_key: str) -> None:
+        import anthropic  # imported lazily so retrieval-only paths stay light
+
+        self._client = anthropic.Anthropic(api_key=api_key)
+
+    def invoke(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        system: str | None,
+        max_tokens: int,
+        temperature: float | None,
+        stop_sequences: list[str] | None,
+    ) -> ProviderResult:
+        request: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            request["system"] = system
+        if stop_sequences:
+            request["stop_sequences"] = stop_sequences
+        # Claude 4.6+ rejects sampling parameters with a 400. Dropping one
+        # beats failing an eval halfway through.
+        if temperature is not None and _supports_temperature(model):
+            request["temperature"] = temperature
+
+        raw = self._client.messages.create(**request)
+        usage = raw.usage
+        return ProviderResult(
+            text="".join(b.text for b in raw.content if b.type == "text"),
+            input_tokens=getattr(usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            stop_reason=getattr(raw, "stop_reason", None),
+            request_id=getattr(raw, "_request_id", None),
+        )
+
+
+class OpenAICompatibleProvider:
+    """Any endpoint that speaks the OpenAI chat-completions API.
+
+    Covers NVIDIA NIM, Groq, OpenRouter, Together, and a local Ollama. The
+    point is to make the evaluation harness runnable on a free tier: nothing in
+    this project needs Claude specifically, it needs *a* model, and which one
+    was used is recorded on every experiment so results stay attributable.
+
+    Two differences from Anthropic worth knowing:
+
+    * The system prompt is a message with `role: "system"`, not a top-level
+      field.
+    * Reasoning models return their chain of thought in a separate
+      `reasoning_content` field. We read `content` only -- the reasoning is
+      not the answer, and concatenating them would corrupt every strict-JSON
+      response the judge and verifier depend on.
+    """
+
+    name = "openai"
+
+    def __init__(self, api_key: str, base_url: str | None) -> None:
+        try:
+            from openai import OpenAI
+        except ImportError as exc:  # pragma: no cover - dependency is declared
+            raise RuntimeError(
+                "The `openai` package is required for GT_LLM_PROVIDER=openai. "
+                "Run: cd backend && uv sync --all-extras"
+            ) from exc
+
+        # Generous timeout: hosted reasoning models can take a while, and a
+        # timeout mid-eval costs more than waiting.
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=180.0, max_retries=0)
+
+    def invoke(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        system: str | None,
+        max_tokens: int,
+        temperature: float | None,
+        stop_sequences: list[str] | None,
+    ) -> ProviderResult:
+        messages: list[dict[str, Any]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        request: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+        }
+        if temperature is not None:
+            request["temperature"] = temperature
+        if stop_sequences:
+            request["stop"] = stop_sequences
+
+        raw = self._client.chat.completions.create(**request)
+        choice = raw.choices[0] if raw.choices else None
+        text = (getattr(choice.message, "content", None) or "") if choice else ""
+        usage = getattr(raw, "usage", None)
+
+        return ProviderResult(
+            text=text,
+            input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            stop_reason=getattr(choice, "finish_reason", None) if choice else None,
+            request_id=getattr(raw, "id", None),
+        )
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    """Detect a rate-limit error without importing every SDK's exception type."""
+    status = getattr(exc, "status_code", None) or getattr(
+        getattr(exc, "response", None), "status_code", None
+    )
+    if status == 429:
+        return True
+    return "rate limit" in str(exc).lower() or "429" in str(exc)
+
+
+# ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
 class LLMClient:
-    """Cached, cost-aware wrapper over the Anthropic Messages API."""
+    """Cached, cost-aware wrapper over whichever provider is configured."""
 
     def __init__(
         self,
@@ -271,19 +421,51 @@ class LLMClient:
     def cheap_model(self) -> str:
         return self.settings.gt_cheap_model
 
+    @property
+    def provider_name(self) -> str:
+        return self.settings.gt_llm_provider
+
     def _ensure_client(self) -> Any:
         if self._client is None:
-            if not self.settings.has_anthropic_key:
+            if not self.settings.has_llm_key:
+                expected = (
+                    "ANTHROPIC_API_KEY"
+                    if self.settings.gt_llm_provider == "anthropic"
+                    else "GT_LLM_API_KEY"
+                )
                 raise MissingAPIKeyError(
-                    "ANTHROPIC_API_KEY is not set. Generation and judging need it; "
+                    f"{expected} is not set for provider "
+                    f"'{self.settings.gt_llm_provider}'. Generation and judging need it; "
                     "retrieval-only evals (`make eval MODE=retrieval`) do not."
                 )
-            import anthropic  # imported lazily so retrieval-only paths stay light
 
-            key = self.settings.anthropic_api_key
-            assert key is not None  # guarded by has_anthropic_key above
-            self._client = anthropic.Anthropic(api_key=key.get_secret_value())
+            key = self.settings.llm_api_key
+            assert key is not None  # guarded by has_llm_key above
+            if self.settings.gt_llm_provider == "anthropic":
+                self._client = AnthropicProvider(key.get_secret_value())
+            else:
+                self._client = OpenAICompatibleProvider(
+                    key.get_secret_value(), self.settings.gt_llm_base_url
+                )
         return self._client
+
+    def _cost(self, model: str, result: ProviderResult) -> float:
+        """Dollar cost of one call, per the active provider."""
+        if self.settings.gt_llm_provider != "anthropic":
+            # Zero unless the operator supplied rates. Free tiers really are
+            # $0; a paid endpoint with unset rates would under-report, which is
+            # why `make llm-check` prints the configured rates.
+            per_in = self.settings.gt_llm_cost_per_mtok_in / 1_000_000
+            per_out = self.settings.gt_llm_cost_per_mtok_out / 1_000_000
+            return result.input_tokens * per_in + result.output_tokens * per_out
+
+        return estimate_cost_usd(
+            model,
+            result.input_tokens,
+            result.output_tokens,
+            result.cache_read_tokens,
+            result.cache_write_tokens,
+        )
 
     def complete(
         self,
@@ -298,26 +480,25 @@ class LLMClient:
     ) -> LLMResponse:
         """Single-turn completion. Returns text plus exact usage and cost."""
         model = model or self.default_model
-        messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
 
-        request: dict[str, Any] = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "messages": messages,
-        }
-        if system:
-            request["system"] = system
-        if stop_sequences:
-            request["stop_sequences"] = stop_sequences
-        # Silently dropping an unsupported temperature beats a 400 mid-eval; we
-        # log it so a config asking for something it cannot get stays visible.
-        if temperature is not None:
-            if _supports_temperature(model):
-                request["temperature"] = temperature
-            else:
-                log.debug("llm.temperature_unsupported", model=model, temperature=temperature)
-
-        cache_key = LLMCache.make_key(request)
+        # The cache key includes the provider and base URL: the same prompt to
+        # the same model name on a different backend is a different call, and
+        # serving one for the other would silently mix results from two systems
+        # into one experiment.
+        cache_key = LLMCache.make_key(
+            {
+                "provider": self.settings.gt_llm_provider,
+                "base_url": self.settings.gt_llm_base_url or "",
+                "model": model,
+                "prompt": prompt,
+                "system": system or "",
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stop_sequences": stop_sequences or [],
+            }
+        )
+        if temperature is not None and not _supports_temperature(model):
+            log.debug("llm.temperature_unsupported", model=model, temperature=temperature)
         if use_cache:
             hit = self.cache.get(cache_key)
             if hit is not None:
@@ -327,34 +508,35 @@ class LLMClient:
                 return response
 
         started = time.perf_counter()
-        client = self._ensure_client()
-        raw = client.messages.create(**request)
+        provider = self._ensure_client()
+        result = self._invoke_with_retry(
+            provider,
+            model=model,
+            prompt=prompt,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop_sequences=stop_sequences,
+        )
         latency_ms = (time.perf_counter() - started) * 1000
 
-        text = "".join(block.text for block in raw.content if block.type == "text")
         usage = LLMUsage(
-            input_tokens=getattr(raw.usage, "input_tokens", 0) or 0,
-            output_tokens=getattr(raw.usage, "output_tokens", 0) or 0,
-            cache_read_input_tokens=getattr(raw.usage, "cache_read_input_tokens", 0) or 0,
-            cache_creation_input_tokens=getattr(raw.usage, "cache_creation_input_tokens", 0) or 0,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cache_read_input_tokens=result.cache_read_tokens,
+            cache_creation_input_tokens=result.cache_write_tokens,
         )
-        cost = estimate_cost_usd(
-            model,
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.cache_read_input_tokens,
-            usage.cache_creation_input_tokens,
-        )
+        cost = self._cost(model, result)
         response = LLMResponse(
-            text=text,
+            text=result.text,
             model=model,
             usage=usage,
             cached=False,
             latency_ms=latency_ms,
             cost_usd=cost,
             list_cost_usd=cost,
-            stop_reason=getattr(raw, "stop_reason", None),
-            request_id=getattr(raw, "_request_id", None),
+            stop_reason=result.stop_reason,
+            request_id=result.request_id,
         )
 
         if use_cache:
@@ -370,6 +552,44 @@ class LLMClient:
             latency_ms=round(latency_ms, 1),
         )
         return response
+
+    def _invoke_with_retry(
+        self,
+        provider: Any,
+        *,
+        model: str,
+        prompt: str,
+        system: str | None,
+        max_tokens: int,
+        temperature: float | None,
+        stop_sequences: list[str] | None,
+        attempts: int = 5,
+    ) -> ProviderResult:
+        """Call the provider, backing off on rate limits.
+
+        Free tiers are rate limited (NVIDIA NIM allows 40 requests/minute), and
+        an eval makes hundreds of sequential calls. Without a backoff a long
+        run dies partway through and the partial result is worthless.
+        """
+        delay = 2.0
+        for attempt in range(1, attempts + 1):
+            try:
+                result: ProviderResult = provider.invoke(
+                    model=model,
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stop_sequences=stop_sequences,
+                )
+                return result
+            except Exception as exc:
+                if attempt == attempts or not _is_rate_limit(exc):
+                    raise
+                log.warning("llm.rate_limited", attempt=attempt, sleeping=delay, model=model)
+                time.sleep(delay)
+                delay = min(delay * 2, 60.0)
+        raise RuntimeError("unreachable: retry loop exhausted without raising")
 
     # --- cache (de)serialization ----------------------------------------
     @staticmethod

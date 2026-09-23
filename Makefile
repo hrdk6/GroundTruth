@@ -12,7 +12,7 @@ CONFIG    ?= configs/baseline.yaml
 SPLIT     ?= dev
 MODE      ?= retrieval
 
-.PHONY: help install up db-local db-local-stop down restart logs ps dev migrate revision health test test-unit \
+.PHONY: help install up db-local db-local-stop down restart logs ps dev migrate revision health llm-check test test-unit \
         lint fmt typecheck check ingest eval results clean
 
 help: ## Show available targets
@@ -56,6 +56,9 @@ migrate: ## Apply Alembic migrations
 
 revision: ## Autogenerate a migration: make revision M="add chunks"
 	$(BACKEND) python -m alembic revision --autogenerate -m "$(M)"
+
+llm-check: ## Verify the configured LLM provider before a long run
+	$(BACKEND) python ../scripts/check_llm.py
 
 health: ## Poll /health until the API answers
 	@for i in $$(seq 1 40); do \

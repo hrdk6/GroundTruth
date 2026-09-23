@@ -205,3 +205,34 @@ read better on light backgrounds, and no light theme ships. Chosen because the
 waterfall and rank trail are the product's core artifacts and timelines read
 better on dark — the same reason DevTools' performance panel and Jaeger are
 dark. A light theme is a known gap rather than an oversight.
+
+### D11 — The LLM provider is pluggable, and recorded on every result
+
+**Context.** PROJECT_SPEC.md §4 specifies the Anthropic API. But the generation
+and judging phases are the expensive half of this project, and a contributor
+without a paid key cannot run *any* of them — which means they cannot reproduce
+or extend the half of the repo that matters most.
+
+**Choice.** `LLMClient` talks to a `Provider`. Two exist: `AnthropicProvider`
+(the default, unchanged behaviour) and `OpenAICompatibleProvider`, which
+targets any OpenAI-style endpoint — NVIDIA NIM's free tier, Groq, OpenRouter,
+a local Ollama. `GT_LLM_PROVIDER` selects one.
+
+Two details make this safe rather than merely convenient:
+
+* **The provider and base URL are part of the LLM cache key.** The same prompt
+  to the same model name on a different backend is a different call; serving
+  one for the other would silently blend two systems' outputs into a single
+  experiment.
+* **Cost is never guessed.** An OpenAI-compatible provider reports
+  `$0.00` unless `GT_LLM_COST_PER_MTOK_*` are set. That is correct for a free
+  tier and wrong for a paid one, so `make llm-check` prints the configured
+  rates and says so out loud.
+
+**Trade-off.** Results from different providers are not comparable, and nothing
+in the code stops someone putting a Claude run and a Nemotron run side by side
+in the same table. The defence is that every experiment file records the
+provider and model, and that judge validation (§9.3) measures whether the
+judge — whichever model it is — agrees with a human. A weak judge shows up as a
+low kappa rather than as quietly wrong numbers. That is the honest version of
+this trade: the harness does not assume the model is good, it measures it.

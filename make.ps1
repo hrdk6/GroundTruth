@@ -68,6 +68,7 @@ switch ($Target) {
             @('dev', 'Run the API natively (no container)'),
             @('migrate', 'Apply Alembic migrations'),
             @('revision', 'Autogenerate a migration: ./make.ps1 revision -M "add chunks"'),
+            @('llm-check', 'Verify the configured LLM provider'),
             @('health', 'Poll /health until the API answers'),
             @('test', 'Run the full test suite'),
             @('test-unit', 'Run tests that need no database'),
@@ -96,6 +97,7 @@ switch ($Target) {
     'dev' { Invoke-Backend @('python', '-m', 'app.run') }
     'migrate' { Invoke-Backend @('python', '-m', 'alembic', 'upgrade', 'head') }
     'revision' { Invoke-Backend @('python', '-m', 'alembic', 'revision', '--autogenerate', '-m', $M) }
+    'llm-check' { Invoke-Backend @('python', '../scripts/check_llm.py') }
     'health' { Wait-Health }
     'test' { Invoke-Backend @('python', '-m', 'pytest', '-q') }
     'test-unit' { Invoke-Backend @('python', '-m', 'pytest', '-q', '-m', 'not integration') }

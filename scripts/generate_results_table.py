@@ -119,9 +119,7 @@ def splice(readme: str, table: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--split", help="Only include runs from this split (e.g. test)")
-    parser.add_argument(
-        "--check", action="store_true", help="Fail if the README is out of date"
-    )
+    parser.add_argument("--check", action="store_true", help="Fail if the README is out of date")
     args = parser.parse_args()
 
     readme = README.read_text(encoding="utf-8")
@@ -134,9 +132,7 @@ def main() -> int:
 
     if args.check:
         if updated != readme:
-            print(
-                "error: README results table is stale. Run `make results`.", file=sys.stderr
-            )
+            print("error: README results table is stale. Run `make results`.", file=sys.stderr)
             return 1
         print("README results table is up to date.")
         return 0

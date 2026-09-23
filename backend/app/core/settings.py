@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,8 +43,23 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
 
-    # --- Anthropic --------------------------------------------------------
+    # --- LLM provider -----------------------------------------------------
+    # `anthropic` is the default and what PROJECT_SPEC.md §4 specifies.
+    # `openai` targets any OpenAI-compatible endpoint -- NVIDIA NIM, Groq,
+    # OpenRouter, a local Ollama -- which is how this project can be evaluated
+    # without a paid key.
+    gt_llm_provider: Literal["anthropic", "openai"] = "anthropic"
+    gt_llm_base_url: str | None = None
+    gt_llm_api_key: SecretStr | None = None
+
     anthropic_api_key: SecretStr | None = None
+
+    # Per-MTok pricing for an OpenAI-compatible provider. Left at 0.0 because
+    # the intended use is a free tier -- but a *wrong* zero would silently
+    # report a paid run as costless, so set these when pointing at a paid
+    # endpoint and the cost columns stay truthful.
+    gt_llm_cost_per_mtok_in: float = 0.0
+    gt_llm_cost_per_mtok_out: float = 0.0
 
     # --- Models (defaults; a PipelineConfig may override per experiment) ---
     gt_generation_model: str = "claude-sonnet-5"
@@ -74,8 +90,29 @@ class Settings(BaseSettings):
         path = Path(self.gt_llm_cache_dir)
         return path if path.is_absolute() else REPO_ROOT / path
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def llm_api_key(self) -> SecretStr | None:
+        """The key for the active provider.
+
+        `GT_LLM_API_KEY` wins when set, so switching providers is one variable.
+        Anthropic falls back to `ANTHROPIC_API_KEY`, which is what everybody
+        expects to set.
+        """
+        if self.gt_llm_api_key and self.gt_llm_api_key.get_secret_value():
+            return self.gt_llm_api_key
+        if self.gt_llm_provider == "anthropic":
+            return self.anthropic_api_key
+        return None
+
+    @property
+    def has_llm_key(self) -> bool:
+        key = self.llm_api_key
+        return bool(key and key.get_secret_value())
+
     @property
     def has_anthropic_key(self) -> bool:
+        """Kept for the health endpoint, which reports Anthropic specifically."""
         return bool(self.anthropic_api_key and self.anthropic_api_key.get_secret_value())
 
 

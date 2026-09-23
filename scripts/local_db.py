@@ -70,7 +70,9 @@ def write_env(url: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["start", "uri", "stop", "psql"], default="start", nargs="?")
+    parser.add_argument(
+        "action", choices=["start", "uri", "stop", "psql"], default="start", nargs="?"
+    )
     parser.add_argument("--sql", default="SELECT version();", help="SQL for the psql action")
     args = parser.parse_args(argv)
 
