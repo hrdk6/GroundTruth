@@ -1,21 +1,30 @@
 # The shipping configuration.
 #
-# Retrieval is `hybrid`. **Reranking is deliberately OFF**: the hybrid_rerank
-# experiment found no difference distinguishable from noise on either split
-# while multiplying retrieval latency by two orders of magnitude, so it did not
-# earn its place. See EXPERIMENTS.md for the paired comparison. Keeping it on
-# "because the spec lists it" would contradict the evidence this project exists
-# to produce.
+# Retrieval is `hybrid_bm25`: structure-aware chunks, dense + any-term lexical
+# ranked by BM25, fused with RRF.
+#
+# Read this before trusting that choice: after the measurement audit, NO
+# retrieval variant is distinguishable from noise on golden_v1 (14 dev / 10
+# test scored items) -- the corrected dense-only baseline is as good as
+# anything. hybrid_bm25 is chosen on the evidence that does separate: any-term
+# lexical needs IDF (hybrid, which lacks it, lost the fixture's table_or_code
+# item and scored lowest on test), and structure-aware chunks keep YAML and
+# tables whole in the context the model reads -- a generation-side benefit
+# retrieval recall does not measure. Both are hypotheses a larger golden set
+# should test. EXPERIMENTS.md has the paired comparisons.
+#
+# **Reranking is deliberately OFF**: hybrid_rerank was within noise of hybrid
+# on both splits while multiplying retrieval latency ~100x (p50 ~8s on CPU).
 #
 # On top of that retrieval, this adds the Phase 4 generation work: claim
 # verification with regenerate-or-abstain, cross-version conflict notes, and
 # multi-hop decomposition.
 name: full
 description: >
-  The shipping pipeline: structure-aware chunking, hybrid dense + lexical
+  The shipping pipeline: structure-aware chunking, dense + BM25 lexical
   retrieval fused with RRF, query rewriting, multi-hop decomposition, grounded
   generation with per-sentence claim verification, and version conflict notes.
-  No reranking -- it was measured and reverted.
+  No reranking -- it was measured and did not earn its latency.
 
 chunking:
   chunker: structure_aware
@@ -32,7 +41,7 @@ embedding:
 
 retrieval:
   dense: {enabled: true, k: 20}
-  lexical: {enabled: true, k: 20, text_search_config: english, match: any}
+  lexical: {enabled: true, k: 20, text_search_config: english, match: any, ranking: bm25}
   fusion: {enabled: true, rrf_k: 60}
   # Measured harmful in the hybrid_rerank experiment; see EXPERIMENTS.md.
   rerank: {enabled: false}

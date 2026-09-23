@@ -77,11 +77,12 @@ jobs:
         run: uv run python -m pytest -q
 
       # --- retrieval regression gate -----------------------------------
+      # hybrid_bm25 is the retrieval `full` ships; see evals/thresholds.yaml.
       - name: Ingest the fixture corpus
         working-directory: backend
         run: |
           uv run python -m app.ingestion.run \
-            --config ../configs/hybrid.yaml \
+            --config ../configs/hybrid_bm25.yaml \
             --versions 1.26 1.28 \
             --root tests/fixtures/corpus \
             --no-fetch
@@ -90,7 +91,7 @@ jobs:
         working-directory: backend
         run: |
           uv run python -m evals.runner \
-            --config ../configs/hybrid.yaml \
+            --config ../configs/hybrid_bm25.yaml \
             --dataset fixture_golden.jsonl \
             --split all \
             --mode retrieval
