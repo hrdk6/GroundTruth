@@ -381,3 +381,25 @@ have to be kept in step with every ingest), and a ranker that is inspectable
 in one query. On the golden set it is within noise of everything else; it is
 shipped because it fixes the fixture regression and the IDF argument, not
 because of a golden-set win.
+
+### D19 — A sentence is verified collapsed and shown as written
+
+**Context.** The verifier splits an answer into sentences after collapsing
+its whitespace, so that a line break inside a claim cannot split it. The UI
+rendered those same strings, and a YAML example the model wrote in a fenced
+block reached the reader as one line of literal backticks. Changing the
+splitter to preserve whitespace would change what gets verified, which moves
+faithfulness and citation precision and needs an experiment of its own.
+
+**Choice.** Each segment carries both: `text`, the collapsed sentence the
+verifier judged (unchanged), and `display`, the same sentence's span of the
+original answer, found by matching its tokens with `\s+` between them. The
+UI renders `display` with a deliberately small Markdown subset — fenced code,
+inline code, bold — and anything else as the text it is.
+
+**Trade-off.** Two strings per sentence, and a display span that falls back
+to the collapsed text if it cannot be located (it always can today: the two
+differ only in whitespace). Bought: readable answers with no change to a
+single recorded metric. The splitter can still cut *inside* a code block if
+a YAML comment ends in a full stop followed by a capital; that sentence then
+renders with an unclosed fence, as text.

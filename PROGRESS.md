@@ -113,7 +113,7 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
 - [x] CI: lint, types, tests, fixture ingest, retrieval eval, gate — all run
       locally end to end against a fresh, migrated database; the gate passes
 - [x] README table generated from `experiments/`; `--check` wired into CI
-- [x] ARCHITECTURE (18 decisions), LIMITATIONS (25 entries), DEMO_SCRIPT
+- [x] ARCHITECTURE (19 decisions), LIMITATIONS (25 entries), DEMO_SCRIPT
 - [x] **A fresh clone installs, lints, type-checks, passes all 256 tests, and
       builds the frontend** — which it could not before the audit, because
       `.gitignore` had kept `backend/app/models/` out of every commit
