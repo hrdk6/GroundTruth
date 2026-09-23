@@ -1,13 +1,14 @@
 # Architecture
 
-> Diagrams and component detail grow with each phase. Phase 0 establishes the
-> skeleton and the decisions that constrain everything after it.
+> The decision log is the useful part: each entry records what was chosen and
+> what it cost, so a reader can disagree with a trade-off rather than guess at
+> one.
 
 ## System shape
 
 ```mermaid
 flowchart LR
-    subgraph Ingest["Ingestion (Phase 1)"]
+    subgraph Ingest["Ingestion"]
         K8s["kubernetes/website<br/>release-1.26 / 1.28 / 1.30"] --> Parse[Parse Markdown<br/>+ front matter]
         Parse --> Chunk[Chunk<br/>fixed | structure_aware]
         Chunk --> Embed[Embed<br/>bge-small-en-v1.5]
@@ -32,7 +33,7 @@ flowchart LR
     Chunks --> R
     Query -.spans.-> Traces
 
-    subgraph Eval["Evaluation harness (Phase 2)"]
+    subgraph Eval["Evaluation harness"]
         Golden[Golden set] --> Runner[evals.runner]
         Runner --> Metrics[Retrieval + generation metrics]
         Metrics --> Attr[Failure attribution]
@@ -144,3 +145,63 @@ Postgres only ever runs in Docker.
 **Trade-off.** Two files to keep in sync, which is a real maintenance cost and
 is flagged in `CLAUDE.md`. The alternative — requiring MSYS/Chocolatey make —
 adds a setup step for every reader of the repo.
+
+### D7 — Gold is documentation coordinates, not chunk ids
+
+**Context.** The eval set has to survive Phase 3, which deliberately re-chunks
+the corpus with different strategies and parameters.
+
+**Choice.** Each item records `gold_evidence` as
+`(source_path, heading_path, version, key_quote)`. A retrieved chunk matches
+when it comes from the right page and version and *contains the quote*.
+
+**Trade-off.** Matching is a substring scan rather than an id comparison, so it
+is slower and can in principle match a quote that appears twice on a page. In
+exchange the labels never rot: re-chunking changes every chunk id, and an
+id-keyed dataset would silently start measuring nothing. It is also the form a
+human curator can actually verify, by opening the page and looking.
+
+### D8 — Fixed precedence for failure attribution
+
+**Context.** A failed item often looks like several failure types at once: gold
+was missing from the context *and* the answer was wrong *and* it came from the
+wrong version.
+
+**Choice.** One label per item, assigned in a fixed order — abstention
+decisions, then retrieval miss, then ranking miss, then version error, then
+generation failure.
+
+**Trade-off.** The distribution under-reports secondary causes; an item counted
+as `retrieval_miss` may also have had a generation problem that never got a
+chance to show. Accepted because the distribution's job is to answer "where
+should the next hour go", and double-counting would make it lie about that.
+
+### D9 — Verification counts uncited factual sentences as unsupported
+
+**Context.** Faithfulness is measured by asking a cheap model whether each cited
+excerpt supports its sentence.
+
+**Choice.** A factual sentence with no citation is scored `unsupported` without
+a model call, and `partially` counts as half rather than being rounded to pass
+or fail.
+
+**Trade-off.** It is harsh: a true statement the model simply forgot to cite is
+penalised. That is the point — without the rule, the cheapest way to raise the
+support fraction would be to stop citing, and the metric would reward exactly
+the behaviour it exists to prevent.
+
+### D10 — A dark instrument-panel UI, and state by shape
+
+**Context.** The frontend has to display a span waterfall, a rank trail, and
+dense metric tables, and it is going to be shown to interviewers.
+
+**Choice.** Dark graphite ground with a single brass accent; verification state
+encoded by mark *shape* (filled / half / hollow) with red reserved for alarm;
+structure from rules and aligned columns rather than cards; monospace only
+where the content is literally machine data.
+
+**Trade-off.** A dark-only UI is a real accessibility narrowing for people who
+read better on light backgrounds, and no light theme ships. Chosen because the
+waterfall and rank trail are the product's core artifacts and timelines read
+better on dark — the same reason DevTools' performance panel and Jaeger are
+dark. A light theme is a known gap rather than an oversight.

@@ -60,11 +60,20 @@ jobs:
         working-directory: backend
         run: uv run alembic upgrade head
 
-      # Phase 2+ fills these in; kept explicit so the workflow's shape is clear.
-      - name: Ingest fixture corpus
+      - name: Ingest the corpus
         working-directory: backend
-        run: echo "TODO(Phase 1): uv run python -m app.ingestion.run --config ../${{ inputs.config }}"
+        run: uv run python -m app.ingestion.run --config ../${{ inputs.config }}
 
-      - name: Run evaluation
+      - name: Run the full evaluation
         working-directory: backend
-        run: echo "TODO(Phase 2): uv run python -m evals.runner --config ../${{ inputs.config }} --split ${{ inputs.split }} --mode full"
+        run: |
+          uv run python -m evals.runner             --config ../${{ inputs.config }}             --split ${{ inputs.split }}             --mode full
+
+      # The experiment file is the only record a reported number may come from,
+      # so it is kept as an artifact rather than left in a log.
+      - name: Upload the experiment record
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-${{ inputs.config }}-${{ inputs.split }}
+          path: experiments/*.json
+          if-no-files-found: error

@@ -410,3 +410,110 @@ def test_item_round_trips_through_dict() -> None:
     restored = GoldenItem.from_dict(item.to_dict())
     assert restored.question == item.question
     assert restored.gold_evidence[0].key_quote == item.gold_evidence[0].key_quote
+
+
+# ---------------------------------------------------------------------------
+# Regression gate
+# ---------------------------------------------------------------------------
+def make_record(metrics: dict, by_category: dict | None = None) -> dict:
+    return {
+        "config": {"name": "test"},
+        "split": "dev",
+        "dataset_size": 10,
+        "metrics": metrics,
+        "metrics_by_category": by_category or {},
+        "attribution": {},
+    }
+
+
+def test_gate_passes_when_metrics_are_above_their_floors() -> None:
+    from evals.gate import build_checks
+
+    checks = build_checks(
+        make_record({"recall@5": 0.80, "mrr": 0.70}),
+        {"metrics": {"recall@5": 0.75, "mrr": 0.65}},
+    )
+    assert [c.status for c in checks] == ["pass", "pass"]
+    assert not any(c.failed for c in checks)
+
+
+def test_gate_fails_on_a_regression() -> None:
+    from evals.gate import build_checks
+
+    checks = build_checks(make_record({"recall@5": 0.60}), {"metrics": {"recall@5": 0.75}})
+    assert checks[0].status == "FAIL"
+    assert checks[0].failed
+
+
+def test_gate_fails_when_a_tracked_metric_is_missing() -> None:
+    """A removed metric must not slip through as 'nothing to check'."""
+    from evals.gate import build_checks
+
+    checks = build_checks(make_record({}), {"metrics": {"recall@5": 0.75}})
+    assert checks[0].status == "missing"
+    assert checks[0].failed
+
+
+def test_unset_floor_reports_but_never_fails() -> None:
+    """Before a baseline exists there is nothing to compare against."""
+    from evals.gate import build_checks
+
+    checks = build_checks(make_record({"recall@5": 0.1}), {"metrics": {"recall@5": None}})
+    assert checks[0].status == "unset"
+    assert not checks[0].failed
+
+
+def test_gate_checks_per_category_floors() -> None:
+    from evals.gate import build_checks
+
+    checks = build_checks(
+        make_record({"recall@5": 0.9}, {"exact_term": {"recall@5": 0.40}}),
+        {"by_category": {"exact_term": {"recall@5": 0.60}}},
+    )
+    assert checks[0].name == "exact_term.recall@5"
+    assert checks[0].failed, "an overall win must not hide a per-category regression"
+
+
+def test_shipped_thresholds_file_parses() -> None:
+    from evals.gate import load_thresholds
+
+    thresholds = load_thresholds()
+    assert "metrics" in thresholds
+    assert "recall@5" in thresholds["metrics"]
+
+
+# ---------------------------------------------------------------------------
+# Fixture golden set (the dataset CI gates on)
+# ---------------------------------------------------------------------------
+def test_fixture_golden_set_is_loadable_and_curated() -> None:
+    from evals.dataset.schema import load_dataset
+
+    dataset = load_dataset("fixture_golden.jsonl")
+    assert len(dataset) >= 8
+    assert all(item.curated for item in dataset.items)
+
+
+def test_fixture_quotes_exist_in_the_fixture_corpus() -> None:
+    """Gold that cannot be found in the source is not gold."""
+    from pathlib import Path
+
+    from evals.dataset.schema import load_dataset, normalize_quote
+
+    corpus = Path(__file__).parent / "fixtures" / "corpus"
+    for item in load_dataset("fixture_golden.jsonl").items:
+        for evidence in item.gold_evidence:
+            path = corpus / evidence.version / evidence.source_path
+            assert path.exists(), f"{item.id}: missing {path}"
+            text = path.read_text(encoding="utf-8")
+            assert normalize_quote(evidence.key_quote) in normalize_quote(text), (
+                f"{item.id}: quote not found in {evidence.source_path}"
+            )
+
+
+def test_fixture_set_has_both_answerable_and_unanswerable_items() -> None:
+    """Abstention metrics need both classes present."""
+    from evals.dataset.schema import load_dataset
+
+    items = load_dataset("fixture_golden.jsonl").items
+    assert any(i.answerable for i in items)
+    assert any(not i.answerable for i in items)

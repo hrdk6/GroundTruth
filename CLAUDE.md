@@ -50,6 +50,12 @@ automatically — there is no `activate` step.
 - **Postgres 16 + pgvector** comes from the `pgvector/pgvector:pg16` image.
   There is no native Windows pgvector build worth the trouble; Docker is the
   supported path.
+- **Docker cannot run on this machine.** It is installed, but WSL2 will not
+  start: hardware virtualization is disabled in firmware (`wsl --status` says
+  so). That needs a BIOS/UEFI change and a reboot — it is not fixable from a
+  shell. Until then nothing that needs a database can run: no ingestion, no
+  retrieval, no experiments. The workaround that needs no virtualization is to
+  set `DATABASE_URL` to a managed Postgres 16 with pgvector.
 - **torch is pulled from the CPU-only index** (`[tool.uv.sources]` in
   `backend/pyproject.toml`). The default PyPI wheel bundles CUDA (~2.5GB) that
   this project never uses.
@@ -88,6 +94,29 @@ These bit us once; they are encoded in `app/core/llm.py`.
   (per MTok: Sonnet 5 $2/$10, Haiku 4.5 $1/$5). A wrong number there silently
   corrupts every cost figure in the README.
 
+## Where the project actually stands
+
+Every phase is implemented; nothing past Phase 0 has been *run*. Read
+`PROGRESS.md` before assuming a number exists. `experiments/` is empty, the
+README results table is empty, and `EXPERIMENTS.md` has no entries — keep them
+that way until a real run produces a real file. This is the single most
+important convention in the repo: a fabricated number destroys the only thing
+the project is trying to demonstrate.
+
+When a database becomes available, the order is:
+
+1. `make up && make ingest`
+2. `make eval CONFIG=configs/baseline.yaml SPLIT=dev MODE=retrieval`
+3. then each config in `EXPERIMENTS.md`'s queue, one at a time, recording each
+   result — including the ones that make things worse
+4. set the floors in `backend/evals/thresholds.yaml` from the baseline, so the
+   CI gate stops being decoration
+5. `make results` to regenerate the README table
+
+Generation work (`MODE=full`, golden-set generation, judging) also needs
+`ANTHROPIC_API_KEY`. `python -m evals.dataset.build --estimate` prints a cost
+estimate without spending anything, and refuses to run without `--yes`.
+
 ## Layout notes
 
 - `app/core/settings.py` is *environment* (secrets, hosts). `app/core/pipeline.py`
@@ -99,7 +128,15 @@ These bit us once; they are encoded in `app/core/llm.py`.
 - Two DB engines share one URL: async for the API request path, sync for
   ingestion/evals/CLIs. Both are psycopg 3.
 - Tests that need Postgres are marked `@pytest.mark.integration`;
-  `make test-unit` skips them.
+  `make test-unit` skips them. They skip automatically when no database is
+  reachable, and run in CI against a service container.
+- The fixture corpus (`backend/tests/fixtures/corpus/`, 30 real pages x 2
+  versions) and `data/golden/fixture_golden.jsonl` (8 hand-verified items) are
+  what CI ingests and gates on. Every quote in that golden set is asserted to
+  exist in the fixture corpus by `test_fixture_quotes_exist_in_the_fixture_corpus`.
+- `data/archives/` holds ~750MB of release tarballs and is gitignored. They were
+  briefly committed once; if that happens again, `git rm -r --cached` plus
+  `git reflog expire --expire=now --all && git gc --prune=now`.
 
 ## Style
 

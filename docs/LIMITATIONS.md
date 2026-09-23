@@ -70,3 +70,55 @@ invoked as `python -m <tool>`.
 
 **Real fix.** Neither is a problem in Docker, which is the supported path. Both
 are documented in `CLAUDE.md` so the next person does not spend an hour on them.
+
+## Phases 1-7
+
+### L7 — No measured results exist yet
+
+The largest limitation in the repository. Everything is implemented and tested
+at the unit level, but no experiment has been run, so `experiments/` is empty,
+the README results table is empty, and `EXPERIMENTS.md` has no entries.
+
+**Cause.** Running anything end to end needs Postgres with pgvector. Docker is
+installed on the dev machine but WSL2 will not start -- hardware virtualization
+is disabled in firmware -- so no container can run.
+
+**Fix.** Enable virtualization in BIOS/UEFI and run `make up && make ingest`,
+or point `DATABASE_URL` at any Postgres 16 with pgvector; a free managed
+instance needs no virtualization. CI already provisions one, so the integration
+tests and the retrieval gate will run there on the first push.
+
+### L8 — The regression gate has no floors yet
+
+`evals/thresholds.yaml` ships with every floor set to `null`, so the gate runs
+and reports but cannot fail. That is deliberate -- there is no baseline to set
+floors from -- but until they are set, a green gate means "nothing measured",
+not "nothing regressed". `gate.py` says so explicitly in its output rather than
+printing a reassuring tick.
+
+### L9 — The chunker's token budget can still overflow the encoder
+
+`bge-small-en-v1.5` accepts 512 tokens. A config with `max_tokens: 512` plus a
+prepended heading path exceeds that, and the encoder truncates the tail
+silently. `structure_aware` flags such chunks with `exceeds_model_window` in
+their metadata, and an atomic block bigger than the window (a long YAML
+manifest) is emitted whole rather than split.
+
+**Fix.** Lower `max_tokens` to ~448 to leave room for the heading path, or
+measure whether the truncation actually costs recall -- which is an experiment
+nobody has run yet.
+
+### L10 — Multi-hop recall is scored strictly, and this flatters nothing
+
+`recall@k` requires *every* piece of gold evidence for an item. A multi-hop
+question with one of its two pages retrieved scores 0, not 0.5.
+`partial_recall@10` is reported alongside for diagnosis. This makes the
+headline number lower than a laxer definition would produce; it is the honest
+one, because half the evidence does not answer the question.
+
+### L11 — The frontend is dark-only
+
+No light theme ships. For people who read better on light backgrounds that is a
+real narrowing, and it is a choice rather than an oversight: the trace
+waterfall and rank trail are the product's core artifacts and read better on a
+dark ground. Recorded as decision D10.

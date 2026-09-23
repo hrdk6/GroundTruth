@@ -6,17 +6,19 @@ on:
   pull_request:
 
 env:
-  # Retrieval-only evals and unit tests never call the Anthropic API, so CI
-  # runs with no key at all. That is a property worth keeping.
+  # Retrieval-only evals and every test run without an Anthropic key. That is a
+  # property worth keeping: it is what makes the regression gate free to run on
+  # every PR.
   POSTGRES_USER: groundtruth
   POSTGRES_PASSWORD: groundtruth
   POSTGRES_DB: groundtruth_test
   POSTGRES_HOST: localhost
   POSTGRES_PORT: 5432
+  GT_LOG_FORMAT: json
 
 jobs:
-  quality:
-    name: Lint, types, tests
+  backend:
+    name: Backend — lint, types, tests, retrieval gate
     runs-on: ubuntu-latest
 
     services:
@@ -47,27 +49,80 @@ jobs:
         working-directory: backend
         run: uv sync --all-extras
 
+      # Embedding and reranker weights are ~150MB and never change between
+      # runs; downloading them on every build would dominate CI time.
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('configs/*.yaml') }}
+          restore-keys: hf-
+
       - name: Lint
         working-directory: backend
         run: |
-          uv run ruff check .
-          uv run ruff format --check .
+          uv run python -m ruff check .
+          uv run python -m ruff format --check .
 
       - name: Type-check
         working-directory: backend
-        run: uv run mypy app evals
+        run: uv run python -m mypy app evals
 
       - name: Migrate
         working-directory: backend
-        run: uv run alembic upgrade head
+        run: uv run python -m alembic upgrade head
 
       - name: Test
         working-directory: backend
-        run: uv run pytest -q
+        run: uv run python -m pytest -q
+
+      # --- retrieval regression gate -----------------------------------
+      - name: Ingest the fixture corpus
+        working-directory: backend
+        run: |
+          uv run python -m app.ingestion.run \
+            --config ../configs/hybrid.yaml \
+            --versions 1.26 1.28 \
+            --root tests/fixtures/corpus \
+            --no-fetch
+
+      - name: Retrieval evaluation on the fixture golden set
+        working-directory: backend
+        run: |
+          uv run python -m evals.runner \
+            --config ../configs/hybrid.yaml \
+            --dataset fixture_golden.jsonl \
+            --split all \
+            --mode retrieval
+
+      - name: Check against thresholds
+        working-directory: backend
+        run: uv run python -m evals.gate
 
       - name: README results table is generated, not hand-edited
         run: python scripts/generate_results_table.py --check
 
-  # The retrieval regression gate lands in Phase 7, once thresholds.yaml and a
-  # fixture golden set exist. Adding it before there is anything to measure
-  # would be a green check that means nothing.
+  frontend:
+    name: Frontend — types and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: frontend
+        run: npx next build

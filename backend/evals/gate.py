@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     checks = build_checks(record, thresholds)
 
     lines = [
-        f"### Retrieval regression gate",
+        "### Retrieval regression gate",
         "",
         f"Run `{path.name}` · config `{record.get('config', {}).get('name', '?')}` "
         f"· split `{record.get('split', '?')}` · {record.get('dataset_size', 0)} items",
@@ -121,7 +121,10 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         lines += ["", f"**{len(failed)} metric(s) below floor.**"]
     elif unset and len(unset) == len(checks):
-        lines += ["", "No floors are set yet, so this gate cannot fail. Set them in `evals/thresholds.yaml` once a baseline exists."]
+        lines += [
+            "",
+            "No floors are set yet, so this gate cannot fail. Set them in `evals/thresholds.yaml` once a baseline exists.",
+        ]
     else:
         lines += ["", "All tracked metrics are at or above their floors."]
 
