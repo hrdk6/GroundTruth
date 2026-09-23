@@ -41,7 +41,10 @@ export interface Verification {
  * browser -- is what keeps each verdict attached to the sentence it judged.
  */
 export interface Segment {
+  /** The sentence as verified, whitespace collapsed. */
   text: string;
+  /** The same sentence as written, line breaks kept. Absent from older APIs. */
+  display?: string;
   citations: number[];
   factual: boolean;
   verdict: Verdict | null;
@@ -203,7 +206,11 @@ export class ApiError extends Error {
   }
 }
 
+/** A refused connection fails at once; one that fails after this long timed out. */
+const SLOW_FAILURE_MS = 20_000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const started = performance.now();
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
@@ -230,10 +237,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // The dev proxy answers 502/504 when nothing is listening on the backend
       // port, and Next turns some of those into a bare 500. "500 Internal
       // Server Error" tells the reader nothing they can act on.
+      const slow = performance.now() - started > SLOW_FAILURE_MS;
       detail =
-        response.status >= 500
-          ? "The API didn't respond. Start the backend with `make up`, or `make dev` to run it without containers."
-          : `${response.status} ${response.statusText}`;
+        response.status < 500
+          ? `${response.status} ${response.statusText}`
+          : slow
+            ? "The API took too long to answer and the connection was dropped. The query may still finish: its trace will appear under Traces."
+            : "The API didn't respond. Start the backend with `make up`, or `make dev` to run it without containers.";
     }
     throw new ApiError(detail, response.status);
   }

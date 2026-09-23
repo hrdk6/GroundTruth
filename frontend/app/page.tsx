@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, api, type Citation, type QueryResponse, type Segment } from "@/lib/api";
+import { AnswerText } from "@/components/answer-text";
 import {
   ErrorNote,
   Field,
@@ -39,6 +40,14 @@ const EXAMPLES = [
  * produced by the verifier's own splitter, so there is one definition of a
  * sentence.
  */
+/** At most `limit` characters, cut at a word, with the cut shown. */
+function clip(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
 function segmentsOf(result: QueryResponse): Segment[] {
   if (result.segments?.length) return result.segments;
   // An older API without segments: one block, no per-sentence marks.
@@ -267,41 +276,37 @@ export default function AskPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {segments.map((segment, index) => {
-                  const parts = segment.text.split(/(\[\d+\])/g);
-                  return (
-                    <p
-                      key={index}
-                      className="flex gap-3 items-start leading-relaxed"
-                      title={segment.reason || undefined}
-                    >
-                      <span className="pt-[7px] w-[10px]">
-                        {segment.verdict && <VerificationMark verdict={segment.verdict} />}
-                      </span>
-                      <span className="flex-1">
-                        {parts.map((part, partIndex) => {
-                          const match = part.match(/^\[(\d+)\]$/);
-                          if (!match) return <span key={partIndex}>{part}</span>;
-                          const marker = Number(match[1]);
-                          return (
-                            <button
-                              key={partIndex}
-                              onClick={() => focusCitation(marker)}
-                              aria-label={`Show excerpt ${marker}`}
-                              className={`mono text-[11px] align-super px-1 rounded-[2px] transition-colors ${
-                                activeCitation === marker
-                                  ? "bg-brass text-ink"
-                                  : "text-brass hover:bg-raised"
-                              }`}
-                            >
-                              {marker}
-                            </button>
-                          );
-                        })}
-                      </span>
-                    </p>
-                  );
-                })}
+                {segments.map((segment, index) => (
+                  // A div, not a p: a sentence can hold a code block.
+                  <div
+                    key={index}
+                    className="flex gap-3 items-start leading-relaxed"
+                    title={segment.reason || undefined}
+                  >
+                    <span className="pt-[7px] w-[10px] shrink-0">
+                      {segment.verdict && <VerificationMark verdict={segment.verdict} />}
+                    </span>
+                    <div className="flex-1 min-w-0 wrap-anywhere">
+                      <AnswerText
+                        text={segment.display || segment.text}
+                        citation={(marker, key) => (
+                          <button
+                            key={key}
+                            onClick={() => focusCitation(marker)}
+                            aria-label={`Show excerpt ${marker}`}
+                            className={`mono text-[11px] align-super px-1 rounded-[2px] transition-colors ${
+                              activeCitation === marker
+                                ? "bg-brass text-ink"
+                                : "text-brass hover:bg-raised"
+                            }`}
+                          >
+                            {marker}
+                          </button>
+                        )}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -324,7 +329,7 @@ export default function AskPage() {
                             v{conflict.latest_version} — answered from this
                           </div>
                           <p className="text-text/90 text-[13px] leading-snug">
-                            {conflict.latest_text.slice(0, 260)}
+                            {clip(conflict.latest_text, 260)}
                           </p>
                         </div>
                         <div>
@@ -332,7 +337,7 @@ export default function AskPage() {
                             v{conflict.other_version}
                           </div>
                           <p className="text-mute text-[13px] leading-snug">
-                            {conflict.other_text.slice(0, 260)}
+                            {clip(conflict.other_text, 260)}
                           </p>
                         </div>
                       </div>
@@ -486,7 +491,7 @@ function Excerpt({
       </div>
 
       <div className="px-3 py-2">
-        <p className="text-[13px] leading-snug text-text/90 whitespace-pre-wrap">
+        <p className="text-[13px] leading-snug text-text/90 whitespace-pre-wrap wrap-anywhere">
           {expanded || !long ? citation.text : `${citation.text.slice(0, 420)}…`}
         </p>
         {long && (

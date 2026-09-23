@@ -707,6 +707,39 @@ def test_segments_without_verification_carry_no_verdict() -> None:
     assert [s["citations"] for s in segments] == [[1], [2]]
 
 
+def test_segments_keep_the_answer_as_written_for_display() -> None:
+    """Verification sees collapsed whitespace; the reader must not. A YAML
+    example flattened onto one line is no longer YAML."""
+    from app.generation.verify import segment_answer
+
+    example = (
+        "For example:\n```yaml\nsecurityContext:\n  seccompProfile:\n"
+        "    type: RuntimeDefault\n```\n[1]"
+    )
+    segments = segment_answer("Set the field in the manifest [1].  \n\n" + example, None)
+    assert [s["text"] for s in segments] == [
+        "Set the field in the manifest [1].",
+        "For example: ```yaml securityContext: seccompProfile: type: RuntimeDefault ``` [1]",
+    ]
+    assert [s["display"] for s in segments] == ["Set the field in the manifest [1].", example]
+
+
+def test_display_spans_survive_citations_moved_between_sentences() -> None:
+    from app.generation.verify import segment_answer
+
+    # The splitter cuts before `[3].` and moves it back onto the first
+    # sentence; that must not shift the spans that follow.
+    answer = "A name has at most 253 characters.\n[3]. Labels are shorter [2]. Done  here [1]."
+    segments = segment_answer(answer, None)
+    assert segments[0]["text"] == "A name has at most 253 characters. [3]."
+    assert [s["display"] for s in segments] == [
+        "A name has at most 253 characters.\n[3].",
+        "Labels are shorter [2].",
+        "Done  here [1].",
+    ]
+    assert all(s["display"].split() == s["text"].split() for s in segments)
+
+
 class _VerdictByClaim:
     """Supports claims mentioning 'alpha'; slow enough that threads interleave."""
 

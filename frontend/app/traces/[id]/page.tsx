@@ -12,6 +12,7 @@
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ApiError, api, type Span, type TraceDetail } from "@/lib/api";
+import { AnswerText } from "@/components/answer-text";
 import {
   ErrorNote,
   Field,
@@ -266,8 +267,15 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
           {trace.answer && (
             <>
               <h2 className="text-sm text-mute mt-8 mb-3">Answer</h2>
-              <div className="border border-line rounded-sm px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap">
-                {trace.answer}
+              <div className="border border-line rounded-sm px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap wrap-anywhere">
+                <AnswerText
+                  text={trace.answer}
+                  citation={(marker, key) => (
+                    <span key={key} className="mono text-[11px] align-super px-0.5 text-brass">
+                      {marker}
+                    </span>
+                  )}
+                />
               </div>
             </>
           )}

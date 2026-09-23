@@ -289,18 +289,24 @@ def segment_answer(answer: str, report: VerificationReport | None) -> list[dict[
 
     `verdict` is None for a sentence that was not checked: verification was
     off, or the sentence asserts nothing (`factual` says which).
+
+    `text` is the sentence as verified, whitespace collapsed. `display` is the
+    same sentence as the model wrote it: a YAML example keeps its line breaks.
     """
     verdicts: dict[str, list[SentenceVerification]] = {}
     for verified in report.sentences if report else []:
         verdicts.setdefault(verified.sentence, []).append(verified)
 
+    pairs = split_sentences(answer)
+    displays = _original_spans(normalize_citations(answer), [sentence for sentence, _ in pairs])
     segments: list[dict[str, Any]] = []
-    for sentence, citations in split_sentences(answer):
+    for (sentence, citations), display in zip(pairs, displays, strict=True):
         queue = verdicts.get(sentence)
         checked = queue.pop(0) if queue else None
         segments.append(
             {
                 "text": sentence,
+                "display": display,
                 "citations": citations,
                 "factual": is_factual(sentence),
                 "verdict": checked.verdict if checked else None,
@@ -308,3 +314,25 @@ def segment_answer(answer: str, report: VerificationReport | None) -> list[dict[
             }
         )
     return segments
+
+
+def _original_spans(answer: str, sentences: list[str]) -> list[str]:
+    """Each sentence's span in `answer`, whitespace as written.
+
+    `split_sentences` collapses whitespace before splitting, so a sentence
+    differs from its source only in runs of whitespace: every space in it
+    stands for one or more in the answer. Searching left to right also skips
+    the fragments the splitter dropped. A sentence that cannot be found falls
+    back to its collapsed text, which is still correct, only flatter.
+    """
+    spans: list[str] = []
+    position = 0
+    for sentence in sentences:
+        pattern = r"\s+".join(re.escape(token) for token in sentence.split(" "))
+        found = re.compile(pattern).search(answer, position)
+        if found is None:
+            spans.append(sentence)
+            continue
+        spans.append(found.group(0))
+        position = found.end()
+    return spans
