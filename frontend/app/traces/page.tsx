@@ -38,8 +38,8 @@ export default function TracesPage() {
         )}
 
         {traces && traces.length > 0 && (
-          <div className="border border-line rounded-sm overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border border-line rounded-sm overflow-x-auto">
+            <table className="w-full text-sm min-w-[760px]">
               <thead>
                 <tr className="bg-panel text-left text-[11px] text-dim">
                   <th className="px-3 py-2 font-medium">Question</th>
@@ -61,6 +61,14 @@ export default function TracesPage() {
                       >
                         {trace.question}
                       </Link>
+                      {trace.status !== "ok" && (
+                        <span
+                          className="ml-2 mono text-[10px] px-1 rounded-[2px] border"
+                          style={{ color: "var(--color-alarm)", borderColor: "var(--color-alarm)" }}
+                        >
+                          failed
+                        </span>
+                      )}
                       {trace.abstained && (
                         <span className="ml-2 mono text-[10px] text-brass border border-brass-dim px-1 rounded-[2px]">
                           abstained

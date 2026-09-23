@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </nav>
 
               <div className="ml-auto hidden sm:block mono text-[11px] text-dim">
-                Kubernetes docs · 1.26 / 1.28 / 1.30
+                Kubernetes docs · version-aware RAG
               </div>
             </div>
           </header>

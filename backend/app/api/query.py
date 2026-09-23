@@ -24,6 +24,9 @@ router = APIRouter(tags=["query"])
 log = get_logger(__name__)
 
 EXPERIMENTS_DIR = REPO_ROOT / "experiments"
+# Records from before the measurement audit, kept as history. Listed only on
+# request, so no dashboard view mixes them in with current results by accident.
+SUPERSEDED = "superseded"
 
 
 class QueryRequest(BaseModel):
@@ -213,6 +216,7 @@ class ExperimentSummary(BaseModel):
     confidence: dict[str, Any] = {}
     integrity: dict[str, Any] = {}
     cost_usd: float | None = None
+    superseded: bool = False
 
 
 def _load_experiment(path: Path) -> dict[str, Any] | None:
@@ -221,17 +225,29 @@ def _load_experiment(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         log.warning("experiments.unreadable", path=path.name)
         return None
-    data["id"] = path.stem
+    # The id is the path under experiments/ without `.json`, so a superseded
+    # record is addressable as `superseded/<stem>` and cannot collide.
+    data["id"] = path.relative_to(EXPERIMENTS_DIR).with_suffix("").as_posix()
+    data["superseded"] = path.parent.name == SUPERSEDED
     return data
 
 
 @router.get("/experiments", summary="List recorded experiment runs")
-async def experiments(limit: int = Query(default=50, ge=1, le=500)) -> list[ExperimentSummary]:
+async def experiments(
+    limit: int = Query(default=50, ge=1, le=500),
+    include_superseded: bool = Query(
+        default=False, description="Also list pre-audit runs from experiments/superseded/"
+    ),
+) -> list[ExperimentSummary]:
     if not EXPERIMENTS_DIR.exists():
         return []
 
+    paths = sorted(EXPERIMENTS_DIR.glob("*.json"), reverse=True)
+    if include_superseded:
+        paths += sorted((EXPERIMENTS_DIR / SUPERSEDED).glob("*.json"), reverse=True)
+
     out: list[ExperimentSummary] = []
-    for path in sorted(EXPERIMENTS_DIR.glob("*.json"), reverse=True)[:limit]:
+    for path in paths[:limit]:
         data = _load_experiment(path)
         if data is None:
             continue
@@ -239,6 +255,7 @@ async def experiments(limit: int = Query(default=50, ge=1, le=500)) -> list[Expe
         out.append(
             ExperimentSummary(
                 id=data["id"],
+                superseded=data["superseded"],
                 config_name=data.get("config", {}).get("name", "?"),
                 split=data.get("split", "?"),
                 mode=data.get("mode", "?"),
@@ -295,6 +312,6 @@ async def compare_experiments(a: str, b: str) -> dict[str, Any]:
     }
 
 
-@router.get("/experiments/{experiment_id}", summary="Full experiment record")
+@router.get("/experiments/{experiment_id:path}", summary="Full experiment record")
 async def experiment(experiment_id: str) -> dict[str, Any]:
     return _read_experiment(experiment_id)

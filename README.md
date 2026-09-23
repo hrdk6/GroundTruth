@@ -104,7 +104,7 @@ question → version detect → [rewrite] → [decompose]
 
 Every stage is a config toggle, so an experiment is one line of YAML rather
 than a code change. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
-diagrams and the ten recorded decisions, each with its trade-off.
+diagrams and the seventeen recorded decisions, each with its trade-off.
 
 Three ideas do most of the work:
 

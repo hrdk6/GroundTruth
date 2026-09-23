@@ -68,20 +68,28 @@ export default function ExperimentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [details, setDetails] = useState<Record<string, ExperimentDetail>>({});
+  // Pre-audit runs are history. Off by default; on, they can be compared
+  // against their corrected re-runs to see what the measurement bugs did.
+  const [showSuperseded, setShowSuperseded] = useState(false);
 
   useEffect(() => {
     api
-      .experiments()
+      .experiments(showSuperseded)
       .then((data) => {
         setRuns(data);
-        // Default to comparing the two most recent runs.
-        if (data.length >= 2) setSelected([data[1].id, data[0].id]);
-        else if (data.length === 1) setSelected([data[0].id]);
+        setSelected((current) => {
+          const ids = new Set(data.map((run) => run.id));
+          const kept = current.filter((id) => ids.has(id));
+          if (kept.length) return kept;
+          // Default to comparing the two most recent runs.
+          if (data.length >= 2) return [data[1].id, data[0].id];
+          return data.length === 1 ? [data[0].id] : [];
+        });
       })
       .catch((exc) =>
         setError(exc instanceof ApiError ? exc.message : "Could not load experiments."),
       );
-  }, []);
+  }, [showSuperseded]);
 
   useEffect(() => {
     for (const id of selected) {
@@ -123,6 +131,15 @@ export default function ExperimentsPage() {
         recorded with its config hash, git SHA, and dataset version. Select two to
         compare.
       </p>
+      <label className="mt-3 inline-flex items-center gap-2 text-xs text-mute cursor-pointer">
+        <input
+          type="checkbox"
+          checked={showSuperseded}
+          onChange={(event) => setShowSuperseded(event.target.checked)}
+          className="accent-[#E0B33A]"
+        />
+        Show superseded pre-audit runs (history; their numbers are not results)
+      </label>
 
       <div className="mt-6">
         {error && <ErrorNote message={error} />}
@@ -176,7 +193,12 @@ export default function ExperimentsPage() {
                             className="accent-[#E0B33A]"
                           />
                         </td>
-                        <td className="px-3 py-2 mono text-xs text-text">{run.config_name}</td>
+                        <td className="px-3 py-2 mono text-xs text-text">
+                          {run.config_name}
+                          {run.superseded && (
+                            <span className="ml-2 text-[10px] text-alarm">superseded</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 mono text-xs text-mute">
                           {run.dataset_version ?? "—"}
                         </td>

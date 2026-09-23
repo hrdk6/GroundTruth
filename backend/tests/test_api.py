@@ -174,3 +174,24 @@ def test_admin_rejects_unknown_versions_before_starting(
         "/ingest", json={"versions": ["9.99"]}, headers={"X-Admin-Token": "s3cret"}
     )
     assert response.status_code == 422
+
+
+def test_superseded_runs_are_listed_only_on_request(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("app.api.query.EXPERIMENTS_DIR", tmp_path)
+    (tmp_path / "superseded").mkdir()
+    _write_record(tmp_path, "current", [1.0])
+    _write_record(tmp_path / "superseded", "old", [0.0])
+
+    default = client.get("/experiments").json()
+    assert [run["id"] for run in default] == ["current"]
+
+    everything = client.get("/experiments", params={"include_superseded": True}).json()
+    assert {run["id"]: run["superseded"] for run in everything} == {
+        "current": False,
+        "superseded/old": True,
+    }
+    assert client.get("/experiments/superseded/old").status_code == 200
+    compared = client.get("/experiments/compare", params={"a": "superseded/old", "b": "current"})
+    assert compared.status_code == 200

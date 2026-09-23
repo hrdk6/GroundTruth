@@ -138,6 +138,8 @@ export interface ExperimentSummary {
   confidence: Record<string, Interval>;
   integrity: Partial<Integrity>;
   cost_usd: number | null;
+  /** A pre-audit record from experiments/superseded/: history, not a result. */
+  superseded: boolean;
 }
 
 export interface ExperimentDetail extends ExperimentSummary {
@@ -255,7 +257,10 @@ export const api = {
 
   trace: (id: string) => request<TraceDetail>(`/traces/${id}`),
 
-  experiments: () => request<ExperimentSummary[]>("/experiments"),
+  experiments: (includeSuperseded = false) =>
+    request<ExperimentSummary[]>(
+      `/experiments${includeSuperseded ? "?include_superseded=true&limit=100" : ""}`,
+    ),
 
   experiment: (id: string) => request<ExperimentDetail>(`/experiments/${id}`),
 

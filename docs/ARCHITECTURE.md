@@ -77,8 +77,10 @@ GIN for full-text, JSONB for span attributes.
 **Trade-off.** Postgres full-text search uses `ts_rank_cd`, which is *BM25-like*
 but not BM25 — no proper IDF saturation or length normalization, so lexical
 results will be slightly worse than a real BM25 engine. Accepted because a
-single store means one migration path, one backup, atomic version filtering as a
-SQL pre-filter instead of a post-filter, and no cross-store consistency problem.
+single store means one migration path, one backup, version filtering in the
+same SQL statement as the search, and no cross-store consistency problem. (That
+filter is *not* a pre-filter under HNSW on pgvector < 0.8 — the assumption this
+entry originally made. See D16.)
 ParadeDB's `pg_search` is the upgrade path if lexical recall proves to be the
 bottleneck; that would be an experiment, not an assumption.
 
@@ -119,7 +121,8 @@ just the strategy name, and retrieval always filters on it.
 
 **Trade-off.** More rows and a larger index. Bought: switching chunkers is a
 config change rather than a re-ingestion, so a chunking experiment is cheap
-enough to actually run.
+enough to actually run. *The name turned out not to cover enough of what
+determines a chunk; D13 completes it.*
 
 ### D5 — Generation is not bit-reproducible; the cache is what makes evals stable
 
@@ -140,11 +143,14 @@ or accepting run-to-run noise. This is a real limitation and is recorded in
 **Context.** The primary dev machine is Windows without GNU make; CI is Linux.
 
 **Choice.** `Makefile` is the reference; `make.ps1` mirrors it for PowerShell.
-Postgres only ever runs in Docker.
+Postgres runs in Docker where Docker can start, and otherwise as a user process
+from the `pgserver` wheel (`make db-local`) — which is how every published
+result was produced, because the dev machine cannot run Docker.
 
 **Trade-off.** Two files to keep in sync, which is a real maintenance cost and
 is flagged in `CLAUDE.md`. The alternative — requiring MSYS/Chocolatey make —
-adds a setup step for every reader of the repo.
+adds a setup step for every reader of the repo. `pgserver` pins pgvector 0.6.2,
+which is why D16 exists.
 
 ### D7 — Gold is documentation coordinates, not chunk ids
 
@@ -236,3 +242,117 @@ provider and model, and that judge validation (§9.3) measures whether the
 judge — whichever model it is — agrees with a human. A weak judge shows up as a
 low kappa rather than as quietly wrong numbers. That is the honest version of
 this trade: the harness does not assume the model is good, it measures it.
+
+### D12 — Chunk text is sliced from the source, never decoded from tokens
+
+**Context.** Chunk *boundaries* have to be measured in the embedding model's
+own tokens (L10), and the obvious way to turn a token window back into text is
+`tokenizer.decode(window)`. bge's tokenizer is uncased WordPiece, so decoding is
+lossy: it lowercases, and it spaces out punctuation —
+`--service-node-port-range` comes back as `- - service - node - port - range`.
+That is what the first implementation did.
+
+**Choice.** `Tokenizer.encode_with_offsets` returns character offsets alongside
+the ids; chunkers measure in tokens and cut the text verbatim from the source.
+
+**Trade-off.** One more method on the tokenizer protocol, and a fast
+(Rust-backed) HF tokenizer is required for offsets. Bought: a stored chunk *is*
+the documentation. Before, citations showed the reader lowercased,
+space-mangled text, and — worse — gold quotes could not match it, which capped
+the baseline's recall at about 0.3 without anything saying so (EXPERIMENTS.md).
+
+### D13 — Chunk-set identity covers everything that shapes a vector
+
+**Context.** D4 made `chunker_name` part of a chunk's identity so chunkings
+coexist. But the name was `strategy-size-overlap` only, and ingestion skips a
+document when chunks under that name already exist. So two configs differing
+in `min_tokens`, in whether the heading path is embedded, or in the embedding
+model shared rows, and the second one's ingest silently did nothing. And a
+*code* change to a chunker was invisible to it entirely: the fixed decode bug
+would have kept serving the corrupted rows to anyone who did not wipe the table.
+
+**Choice.** `chunker_name` = a readable label (`structure_aware-512-64-r2`)
+plus an 8-character digest of the full chunking config, the embedding model,
+dimension, document prefix and normalization. `CHUNKER_REVISIONS` holds each
+strategy's implementation revision; bumping it is part of any change to what a
+chunker emits. `python -m app.ingestion.prune` removes sets no config produces.
+
+**Trade-off.** The name is no longer something a human would type, and every
+revision bump forces a re-embed (about 12 CPU-minutes for the evaluated
+corpus). Bought: an experiment can no longer measure an index that its config
+did not build.
+
+### D14 — Two depths: the ranked list for ranking metrics, the context for attribution
+
+**Context.** The retriever cut its output to `k_final` (5) before returning,
+and the evaluator computed recall@10 and nDCG@10 over that cut. So recall@10
+equalled recall@5 by construction in every run, and nDCG@10 was nDCG@5 — two
+columns that looked measured and carried no information.
+
+**Choice.** `RetrievalResult` carries `ranked` (the full final ordering) and
+`candidates` (the top `k_final`, the context). Ranking metrics use `ranked`;
+MRR has an explicit cutoff of 10 so a config that fetches deeper cannot score
+higher for it. Attribution and the new `context_recall` use `candidates`,
+because "was the evidence in what the model saw" is what attribution asks.
+
+**Trade-off.** Two recalls to explain instead of one. The reranker now scores
+and returns every fused candidate rather than its top k (it always *scored*
+them; only the truncation moved).
+
+### D15 — Every run audits its own gold, and reports uncertainty
+
+**Context.** The decode bug was invisible for the life of the project because
+the only integrity check — "every gold quote exists in the source *document*" —
+passed. The quotes were in the documents; they just were not in the chunks. And
+every document in the repo warned that "one item is worth ~5 points" without
+any number attaching that warning to a result.
+
+**Choice.** Before scoring, the runner checks every piece of gold evidence
+against the indexed chunks of its page and records `integrity.recall_ceiling`,
+the best recall any retriever could reach; the CI gate fails below 1.0. Every
+record also carries 95% percentile-bootstrap intervals, and `evals.compare`
+(and `/experiments/compare`) pairs two runs item by item: bootstrap interval on
+the per-item differences plus an exact sign-flip test.
+
+**Trade-off.** One query per gold page per run, and the intervals are honest
+enough to be discouraging: on 14 scored items almost nothing short of the
+chunking fix is distinguishable from noise. That is the finding, not a flaw in
+the tooling. Percentile bootstrap intervals are also slightly too narrow at
+very small n; with this set size they are a floor on the uncertainty, not a
+ceiling.
+
+### D16 — Dense search widens HNSW's candidate list and verifies it got k
+
+**Context.** The retrieval stages filter by chunk set and version in SQL, on
+the theory that a pre-filter keeps `k` honest. Under HNSW that theory is false
+for pgvector < 0.8 (and `pgserver` ships 0.6.2): the index scan returns its
+`ef_search` (default 40) nearest neighbours from the *whole* index, and the
+`WHERE` clause filters those. With two chunk sets and two versions in one
+index, the baseline's dense leg returned 16 of 20; on the fixture index a k=60
+query returned 20.
+
+**Choice.** `dense.ef_search` (default 200) is set per query with `SET LOCAL`;
+if the index still returns fewer than `k`, an exact scan runs and the fallback
+is logged. On pgvector ≥ 0.8 the right tool is `hnsw.iterative_scan`.
+
+**Trade-off.** A wider candidate list costs a little latency on every dense
+query, and the exact fallback is a sequential scan — fine at tens of thousands
+of chunks, not at tens of millions, where partitioning the index by chunk set
+(or a partial index per set) would be the real fix.
+
+### D17 — The API only runs named configs, and every query leaves a trace
+
+**Context.** `/query` passed `config_name` straight to `load_config`, which
+accepts filesystem paths — right for a CLI, wrong for an HTTP endpoint. And a
+query that raised left no trace at all: its transaction rolled back and took
+the trace with it, so the failures most worth reading were the ones that
+vanished.
+
+**Choice.** The API resolves config names against `configs/` only (404
+otherwise), and defaults to `GT_DEFAULT_CONFIG` (`full`). On failure the trace
+is written in a fresh transaction with `status: error`; the span that raised is
+already marked. Cost is read from a per-request child tracker, because the old
+delta on a shared tracker billed each concurrent request for its neighbours.
+
+**Trade-off.** A failed query costs one extra small write. `POST /ingest`
+exists for the spec, but is off unless `GT_ADMIN_TOKEN` is set.
