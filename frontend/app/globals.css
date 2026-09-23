@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   GroundTruth — an instrument readout, not a dashboard.
+
+   Dark ground because the trace waterfall is the core artifact and timelines
+   read better on dark (the same reason DevTools' performance panel and Jaeger
+   are dark). Brass accent because a survey benchmark — the literal "ground
+   truth" — is a brass disk set in stone.
+
+   State is encoded by SHAPE first (filled / half / hollow verification marks);
+   colour is reserved for alarm. That keeps a dense answer from turning into
+   badge soup.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --color-ink: #0f1419;
+  --color-panel: #151b23;
+  --color-raised: #1b222c;
+  --color-line: #242e3a;
+  --color-line-bright: #33404f;
+  --color-mute: #7c8b9e;
+  --color-dim: #576475;
+  --color-text: #dce3ec;
+  --color-bright: #f2f6fa;
+
+  /* Brass: interactive, selected, and measured emphasis. Used sparingly. */
+  --color-brass: #e0b33a;
+  --color-brass-dim: #8a6f24;
+
+  /* Alarm only. */
+  --color-alarm: #e5645e;
+  --color-ok: #5bc98c;
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Numeric data must align in columns to be comparable at a glance. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  ::selection {
+    background: var(--color-brass);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brass);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* A measuring rule: the structural device instead of card borders. */
+  .rule {
+    border-top: 1px solid var(--color-line);
+  }
+
+  /* Ticked rule — the section divider, echoing a ruler's scale. */
+  .rule-ticked {
+    background-image: linear-gradient(to right, var(--color-line) 1px, transparent 1px);
+    background-size: 8px 1px;
+    background-repeat: repeat-x;
+    height: 1px;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+}
+
+/* The one orchestrated motion: a citation lighting up its evidence. */
+@keyframes evidence-lock {
+  0% {
+    background-color: color-mix(in srgb, var(--color-brass) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.evidence-lock {
+  animation: evidence-lock 900ms ease-out;
+}

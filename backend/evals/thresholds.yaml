@@ -1,0 +1,38 @@
+# Retrieval regression gate for CI.
+#
+# These are floors, not targets. A PR fails when a tracked metric drops below
+# its floor on the fixture golden set, which catches "I refactored the chunker
+# and quietly lost 8% recall" before it merges.
+#
+# How to set them: run the fixture eval on main, then set each floor a little
+# below the observed value -- enough slack to absorb noise, tight enough to
+# catch a real regression. Raising a floor after a genuine improvement is the
+# normal way this file changes, and doing so is part of the PR that improved it.
+#
+# LOWERING a floor is only legitimate alongside a recorded experiment in
+# EXPERIMENTS.md explaining the trade that was accepted. Lowering it to make a
+# red build green is how a regression gate becomes decoration.
+
+dataset: fixture_golden.jsonl
+config: configs/baseline.yaml
+split: all
+mode: retrieval
+
+# Unset until the first fixture eval runs against a live database. A null floor
+# is reported but never fails the build, so the gate cannot pass vacuously
+# while pretending to be meaningful.
+metrics:
+  recall@5: null
+  recall@10: null
+  mrr: null
+  ndcg@10: null
+
+# Per-category floors catch a change that lifts the average while destroying
+# one category -- exactly what a chunker change can do to table_or_code.
+by_category:
+  exact_term:
+    recall@5: null
+  table_or_code:
+    recall@5: null
+  version_sensitive:
+    recall@5: null
