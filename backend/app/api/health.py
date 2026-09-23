@@ -49,7 +49,7 @@ async def health() -> HealthResponse:
             server_version=str(info["server_version"]),
             pgvector=bool(info["pgvector"]),
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure here means "database down"
         log.warning("health.database_unreachable", error=str(exc))
         db = DatabaseHealth(connected=False, error=type(exc).__name__)
 

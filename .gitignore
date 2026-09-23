@@ -22,9 +22,11 @@ out/
 .env.*.local
 
 # Data: raw + processed corpora are large and reproducible from source.
+# `archives/` holds the downloaded release tarballs (~250MB each).
 # Golden sets ARE committed (they are the curated ground truth).
 data/raw/
 data/processed/
+data/archives/
 !data/golden/
 !data/golden/**
 

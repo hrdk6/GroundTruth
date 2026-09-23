@@ -47,9 +47,14 @@ class ChunkingConfig(_Frozen):
     prepend_heading_path: bool = True
 
     @model_validator(mode="after")
-    def _overlap_fits(self) -> ChunkingConfig:
+    def _sizes_are_coherent(self) -> ChunkingConfig:
         if self.overlap_tokens >= self.max_tokens:
             raise ValueError("overlap_tokens must be smaller than max_tokens")
+        if self.min_tokens >= self.max_tokens:
+            # Otherwise every chunk after the first is silently discarded for
+            # being "too small", and the corpus loses most of its content with
+            # no error anywhere.
+            raise ValueError("min_tokens must be smaller than max_tokens")
         return self
 
 
