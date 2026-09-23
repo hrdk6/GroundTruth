@@ -151,11 +151,21 @@ def build_table(runs: list[dict[str, Any]]) -> str:
     ]
 
     any_dirty = False
+    any_cached = False
     for run in runs:
         cost = run.get("cost", {}).get("cost_usd")
         p50 = run.get("latency", {}).get("p50_ms")
         n = run.get("metrics", {}).get("count")
         sha = str(run.get("git_sha") or "")[:7] or "—"
+        # A run that mostly replayed the LLM cache measured the cache, not the
+        # model: its latency is not what a user would wait.
+        cached = run.get("cost", {}).get("calls", 0) and (
+            run.get("cost", {}).get("cache_hit_rate", 0) >= 0.5
+        )
+        latency = f"{float(p50):,.0f}ms" if p50 is not None else "—"
+        if cached:
+            latency += "†"
+            any_cached = True
         if run.get("git_dirty"):
             sha += "*"
             any_dirty = True
@@ -165,7 +175,7 @@ def build_table(runs: list[dict[str, Any]]) -> str:
             str(run.get("split", "?")),
             str(n) if n is not None else "—",
             *(format_value(run, key, with_ci) for key, _, with_ci in present),
-            f"{float(p50):,.0f}ms" if p50 is not None else "—",
+            latency,
             f"${float(cost):.2f}" if cost is not None else "—",
             f"`{sha}`",
         ]
@@ -180,6 +190,11 @@ def build_table(runs: list[dict[str, Any]]) -> str:
         "95% percentile bootstrap over items. Recall@k, MRR@10 and nDCG@10 are over "
         "the full ranked list; see `context_recall` in each file for the top-`k_final` cut._",
     ]
+    if any_cached:
+        notes.append(
+            "_† mostly served from the LLM cache, so this p50 is not a cold-query "
+            "latency; see EXPERIMENTS.md._"
+        )
     if any_dirty:
         notes.append(
             "_`*` = recorded from a working tree with uncommitted changes, so not "

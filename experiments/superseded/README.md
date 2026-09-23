@@ -24,7 +24,7 @@ after the index scan, so queries returned fewer than `k` chunks), and the
 verifier attached a mid-answer trailing citation to the wrong sentence.
 
 The results that replace these are the files one directory up. EXPERIMENTS.md
-("The baseline was measuring its own bug") walks through what changed and by
+("The measurement audit") walks through what changed and by
 how much.
 
 `scripts/generate_results_table.py` reads only `experiments/*.json`, so nothing
@@ -32,7 +32,7 @@ in this directory reaches the README.
 
 ## Superseded during the audit
 
-Four later records are also here. They are generation runs of `full` from two
+Six later records are also here. They are generation runs of `full` from two
 commits *inside* the audit, each replaced by a fix, and they exist so that the
 numbers EXPERIMENTS.md quotes about those fixes trace to a file. Each was
 reproduced from its commit after the fact, with every model call served from
@@ -43,6 +43,7 @@ what those commits produced.
 |---|---|---|
 | `20260923T173236Z_full` (dev), `20260923T173252Z_full` (test) | `ba8bd3b` | conflict notes checked only for cited sections (`f42eb20`) |
 | `20260923T173311Z_full` (dev), `20260923T173329Z_full` (test) | `f42eb20` | the judge no longer sees citation markers (`48781b1`) |
+| `20260923T171939Z_full` (dev), `20260923T172025Z_full` (test) | `48781b1` | abstention with only part of the evidence is no longer a `false_abstention` |
 
 The replays needed `backend/app/models/` copied in: those commits predate the
 fix that stopped `.gitignore` from excluding it, which is itself one of the

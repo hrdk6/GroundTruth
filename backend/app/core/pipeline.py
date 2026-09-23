@@ -40,7 +40,7 @@ ChunkerName = Literal["fixed", "structure_aware"]
 #
 # Revision 1 was unsuffixed and built chunk text with `tokenizer.decode`, which
 # lowercased it and spaced out its punctuation. Revision 2 slices the source
-# verbatim. See EXPERIMENTS.md, "The baseline was measuring its own bug".
+# verbatim. See EXPERIMENTS.md, "The measurement audit".
 # structure_aware 3 drops pieces with no letter or digit (markup debris).
 CHUNKER_REVISIONS: dict[str, int] = {"fixed": 2, "structure_aware": 3}
 

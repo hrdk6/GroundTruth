@@ -165,3 +165,12 @@ export function formatTime(iso: string): string {
     minute: "2-digit",
   });
 }
+
+/**
+ * A heading path as a reader should see it. Hugo headings carry explicit
+ * anchors -- `Termination of Pods {#pod-termination}` -- which the parser keeps
+ * in the stored path; they are markup, not part of the title.
+ */
+export function cleanHeading(path: string | null | undefined): string {
+  return (path ?? "").replace(/\s*\{#[^}]*\}/g, "");
+}

@@ -17,6 +17,7 @@ import {
   Field,
   Spinner,
   VerificationMark,
+  cleanHeading,
   formatCost,
   formatMs,
 } from "@/components/primitives";
@@ -315,7 +316,7 @@ export default function AskPage() {
                     <div key={index} className="px-4 py-3 text-sm">
                       <div className="mono text-xs text-mute">
                         {conflict.source_path}
-                        {conflict.heading_path && ` · ${conflict.heading_path}`}
+                        {conflict.heading_path && ` · ${cleanHeading(conflict.heading_path)}`}
                       </div>
                       <div className="mt-2 grid sm:grid-cols-2 gap-3">
                         <div>
@@ -479,7 +480,7 @@ function Excerpt({
           </a>
           <div className="mono text-[11px] text-dim mt-0.5">
             v{citation.version}
-            {citation.heading_path && ` · ${citation.heading_path}`}
+            {citation.heading_path && ` · ${cleanHeading(citation.heading_path)}`}
           </div>
         </div>
       </div>

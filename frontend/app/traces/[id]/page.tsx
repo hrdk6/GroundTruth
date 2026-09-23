@@ -12,7 +12,15 @@
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ApiError, api, type Span, type TraceDetail } from "@/lib/api";
-import { ErrorNote, Field, Spinner, formatCost, formatMs, formatTime } from "@/components/primitives";
+import {
+  ErrorNote,
+  Field,
+  Spinner,
+  cleanHeading,
+  formatCost,
+  formatMs,
+  formatTime,
+} from "@/components/primitives";
 
 interface ChunkRow {
   chunk_id: number;
@@ -241,7 +249,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                                     {String(entry.source_path ?? "")}
                                   </span>
                                   <span className="text-dim truncate max-w-[14rem]">
-                                    {String(entry.heading_path ?? "")}
+                                    {cleanHeading(String(entry.heading_path ?? ""))}
                                   </span>
                                 </li>
                               ))}
@@ -292,7 +300,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                     </div>
                     {chunk.heading_path && (
                       <div className="mono text-[10px] text-dim truncate">
-                        {chunk.heading_path}
+                        {cleanHeading(chunk.heading_path)}
                       </div>
                     )}
                     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
