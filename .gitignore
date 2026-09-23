@@ -35,7 +35,10 @@ data/archives/
 .cache/
 llm_cache/
 .hf_cache/
-models/
+# Downloaded model weights, at the repo root only. This was once a bare
+# `models/`, which also matched backend/app/models/ -- the ORM package -- so
+# the database schema's source was never committed and no clone could import.
+/models/
 
 # OS / editor
 .DS_Store
