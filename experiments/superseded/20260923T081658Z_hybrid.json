@@ -4,7 +4,7 @@
   "split": "dev",
   "dataset_version": "fixture_golden",
   "dataset_size": 8,
-  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
+  "git_sha": "efc92b51b585abeb03141b058060409681f78aa1",
   "git_dirty": true,
   "config": {
     "name": "hybrid",

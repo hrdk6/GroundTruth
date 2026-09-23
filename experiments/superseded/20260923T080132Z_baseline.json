@@ -4,7 +4,7 @@
   "split": "test",
   "dataset_version": "golden_v1",
   "dataset_size": 13,
-  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
+  "git_sha": "efc92b51b585abeb03141b058060409681f78aa1",
   "git_dirty": true,
   "config": {
     "name": "baseline",

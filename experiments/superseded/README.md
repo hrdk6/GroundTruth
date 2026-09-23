@@ -16,7 +16,7 @@ to every file:
    the ranked list, so `recall@10` equals `recall@5` by construction in every
    retrieval run here.
 3. **Every file has `"git_dirty": true`.** They were recorded from a working
-   tree with uncommitted changes at `0f08127`, so none is reproducible from
+   tree with uncommitted changes at `efc92b5`, so none is reproducible from
    its SHA.
 
 The dense leg was also affected by an HNSW filtering bug (pgvector filters
@@ -41,9 +41,9 @@ what those commits produced.
 
 | Record | Commit | Superseded by |
 |---|---|---|
-| `20260923T173236Z_full` (dev), `20260923T173252Z_full` (test) | `ba8bd3b` | conflict notes checked only for cited sections (`f42eb20`) |
-| `20260923T173311Z_full` (dev), `20260923T173329Z_full` (test) | `f42eb20` | the judge no longer sees citation markers (`48781b1`) |
-| `20260923T171939Z_full` (dev), `20260923T172025Z_full` (test) | `48781b1` | abstention with only part of the evidence is no longer a `false_abstention` |
+| `20260923T173236Z_full` (dev), `20260923T173252Z_full` (test) | `ef4a472` | conflict notes checked only for cited sections (`ec15828`) |
+| `20260923T173311Z_full` (dev), `20260923T173329Z_full` (test) | `ec15828` | the judge no longer sees citation markers (`05d1ee7`) |
+| `20260923T171939Z_full` (dev), `20260923T172025Z_full` (test) | `05d1ee7` | abstention with only part of the evidence is no longer a `false_abstention` |
 
 The replays needed `backend/app/models/` copied in: those commits predate the
 fix that stopped `.gitignore` from excluding it, which is itself one of the

@@ -5,7 +5,7 @@
   "dataset_version": "fixture_golden",
   "dataset_size": 8,
   "version_hint": false,
-  "git_sha": "983a10712ef7cfacdf930ea8290a3958067e3a3b",
+  "git_sha": "40024ee91fd3043e91f1a4cbb873d4f089fa1578",
   "git_dirty": false,
   "config": {
     "name": "hybrid_bm25",

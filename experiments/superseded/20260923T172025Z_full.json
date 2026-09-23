@@ -5,7 +5,7 @@
   "dataset_version": "golden_v1",
   "dataset_size": 13,
   "version_hint": false,
-  "git_sha": "48781b16cf290eede5103a87cd9b71e8620fda56",
+  "git_sha": "05d1ee7e5d761aa86df7afda4a6c8b83a93a0d92",
   "git_dirty": false,
   "config": {
     "name": "full",
