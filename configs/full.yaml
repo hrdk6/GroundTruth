@@ -1,10 +1,11 @@
 # The shipping configuration.
 #
-# Retrieval is `hybrid`, which won Phase 3. **Reranking is deliberately OFF**:
-# the hybrid_rerank experiment measured it making retrieval worse on every
-# metric (recall@5 0.786 -> 0.714) while costing 93x the latency, so it was
-# reverted. See EXPERIMENTS.md. Keeping it enabled here "because the spec lists
-# it" would contradict the evidence this project exists to produce.
+# Retrieval is `hybrid`. **Reranking is deliberately OFF**: the hybrid_rerank
+# experiment found no difference distinguishable from noise on either split
+# while multiplying retrieval latency by two orders of magnitude, so it did not
+# earn its place. See EXPERIMENTS.md for the paired comparison. Keeping it on
+# "because the spec lists it" would contradict the evidence this project exists
+# to produce.
 #
 # On top of that retrieval, this adds the Phase 4 generation work: claim
 # verification with regenerate-or-abstain, cross-version conflict notes, and

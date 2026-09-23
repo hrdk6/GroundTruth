@@ -1,12 +1,14 @@
 name: Full evaluation (manual)
 
-# Generation evals cost money, so they never run automatically.
+# Generation evals call a model, so they never run automatically. With the
+# free-tier provider they cost $0 but take a while; with Anthropic they cost
+# money -- check the estimate in EXPERIMENTS.md first.
 on:
   workflow_dispatch:
     inputs:
       config:
         description: Config to evaluate
-        default: configs/baseline.yaml
+        default: configs/full.yaml
         required: true
       split:
         description: Dataset split
@@ -19,6 +21,7 @@ jobs:
   evaluate:
     name: Generation eval
     runs-on: ubuntu-latest
+    timeout-minutes: 180
 
     services:
       postgres:
@@ -36,12 +39,20 @@ jobs:
           --health-retries 20
 
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       POSTGRES_USER: groundtruth
       POSTGRES_PASSWORD: groundtruth
       POSTGRES_DB: groundtruth
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
+      # Either provider works. Set GT_LLM_PROVIDER=openai plus GT_LLM_* for an
+      # OpenAI-compatible endpoint (what every published result used), or
+      # leave it unset and provide ANTHROPIC_API_KEY.
+      GT_LLM_PROVIDER: ${{ vars.GT_LLM_PROVIDER || 'anthropic' }}
+      GT_LLM_BASE_URL: ${{ vars.GT_LLM_BASE_URL }}
+      GT_GENERATION_MODEL: ${{ vars.GT_GENERATION_MODEL || 'claude-sonnet-5' }}
+      GT_CHEAP_MODEL: ${{ vars.GT_CHEAP_MODEL || 'claude-haiku-4-5' }}
+      GT_LLM_API_KEY: ${{ secrets.GT_LLM_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -58,22 +69,31 @@ jobs:
 
       - name: Migrate
         working-directory: backend
-        run: uv run alembic upgrade head
+        run: uv run python -m alembic upgrade head
 
-      - name: Ingest the corpus
+      # The same subset golden_v1 was written against. The full corpus would
+      # take hours to embed on a runner and measure pages no item asks about.
+      - name: Ingest the evaluated corpus
         working-directory: backend
-        run: uv run python -m app.ingestion.run --config ../${{ inputs.config }}
+        run: >-
+          uv run python -m app.ingestion.run
+          --config ../${{ inputs.config }}
+          --versions 1.26 1.30
+          --include concepts tasks
 
       - name: Run the full evaluation
         working-directory: backend
-        run: |
-          uv run python -m evals.runner             --config ../${{ inputs.config }}             --split ${{ inputs.split }}             --mode full
+        run: >-
+          uv run python -m evals.runner
+          --config ../${{ inputs.config }}
+          --split ${{ inputs.split }}
+          --mode full
 
       # The experiment file is the only record a reported number may come from,
       # so it is kept as an artifact rather than left in a log.
       - name: Upload the experiment record
         uses: actions/upload-artifact@v4
         with:
-          name: experiment-${{ inputs.config }}-${{ inputs.split }}
+          name: experiment-${{ inputs.split }}
           path: experiments/*.json
           if-no-files-found: error
