@@ -133,6 +133,20 @@ def test_compare_refuses_runs_over_different_items(
     assert client.get("/experiments/compare", params={"a": "a", "b": "b"}).status_code == 409
 
 
+def test_a_full_record_carries_every_summary_field(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The UI types a detail as extending a summary. It once lacked
+    `config_name`, which left the comparison view without run names."""
+    monkeypatch.setattr("app.api.query.EXPERIMENTS_DIR", tmp_path)
+    _write_record(tmp_path, "hybrid", [1.0])
+
+    summary = client.get("/experiments").json()[0]
+    detail = client.get("/experiments/hybrid").json()
+    assert detail["config_name"] == "hybrid"
+    assert set(summary) <= set(detail)
+
+
 def test_experiment_ids_cannot_escape_the_directory(client: TestClient) -> None:
     assert client.get("/experiments/..%2F..%2F.env").status_code == 404
 

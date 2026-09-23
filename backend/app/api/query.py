@@ -54,6 +54,9 @@ class SegmentModel(BaseModel):
     """One sentence of the answer, split on the server with its verdict."""
 
     text: str
+    # The sentence as written (line breaks kept, e.g. in a code block); `text`
+    # is the whitespace-collapsed form the verifier judged.
+    display: str = ""
     citations: list[int]
     factual: bool
     verdict: str | None = None
@@ -232,6 +235,26 @@ def _load_experiment(path: Path) -> dict[str, Any] | None:
     return data
 
 
+def _summarize(data: dict[str, Any]) -> ExperimentSummary:
+    integrity = data.get("integrity") or {}
+    return ExperimentSummary(
+        id=data["id"],
+        superseded=data["superseded"],
+        config_name=data.get("config", {}).get("name", "?"),
+        split=data.get("split", "?"),
+        mode=data.get("mode", "?"),
+        timestamp=data.get("timestamp", ""),
+        git_sha=data.get("git_sha"),
+        git_dirty=data.get("git_dirty"),
+        dataset_version=data.get("dataset_version"),
+        dataset_size=data.get("dataset_size"),
+        metrics=data.get("metrics", {}),
+        confidence=data.get("confidence", {}),
+        integrity={k: v for k, v in integrity.items() if k != "issues"},
+        cost_usd=data.get("cost", {}).get("cost_usd"),
+    )
+
+
 @router.get("/experiments", summary="List recorded experiment runs")
 async def experiments(
     limit: int = Query(default=50, ge=1, le=500),
@@ -249,27 +272,8 @@ async def experiments(
     out: list[ExperimentSummary] = []
     for path in paths[:limit]:
         data = _load_experiment(path)
-        if data is None:
-            continue
-        integrity = data.get("integrity") or {}
-        out.append(
-            ExperimentSummary(
-                id=data["id"],
-                superseded=data["superseded"],
-                config_name=data.get("config", {}).get("name", "?"),
-                split=data.get("split", "?"),
-                mode=data.get("mode", "?"),
-                timestamp=data.get("timestamp", ""),
-                git_sha=data.get("git_sha"),
-                git_dirty=data.get("git_dirty"),
-                dataset_version=data.get("dataset_version"),
-                dataset_size=data.get("dataset_size"),
-                metrics=data.get("metrics", {}),
-                confidence=data.get("confidence", {}),
-                integrity={k: v for k, v in integrity.items() if k != "issues"},
-                cost_usd=data.get("cost", {}).get("cost_usd"),
-            )
-        )
+        if data is not None:
+            out.append(_summarize(data))
     return out
 
 
@@ -314,4 +318,7 @@ async def compare_experiments(a: str, b: str) -> dict[str, Any]:
 
 @router.get("/experiments/{experiment_id:path}", summary="Full experiment record")
 async def experiment(experiment_id: str) -> dict[str, Any]:
-    return _read_experiment(experiment_id)
+    # The record over its own summary: every summary field is present (the UI
+    # types a detail as extending a summary), and the record's values win.
+    data = _read_experiment(experiment_id)
+    return {**_summarize(data).model_dump(), **data}
