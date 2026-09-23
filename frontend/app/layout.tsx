@@ -1,17 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Nav } from "@/components/nav";
+import { Wordmark } from "@/components/primitives";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GroundTruth",
-  description: "A self-evaluating, version-aware RAG platform over the Kubernetes docs.",
+  title: "GroundTruth — answers you can check",
+  description:
+    "Question answering over the Kubernetes docs that cites every claim, verifies it against the source, and keeps releases apart.",
 };
-
-const NAV = [
-  { href: "/", label: "Ask" },
-  { href: "/traces", label: "Traces" },
-  { href: "/experiments", label: "Experiments" },
-];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -19,46 +16,38 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* Atkinson Hyperlegible was drawn for low-vision readers: letterforms
+            that cannot be mistaken for each other (I l 1, O 0). This page's job
+            is being read closely, so legibility is the brief, not a garnish. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;500;700&family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap"
           rel="stylesheet"
         />
       </head>
       <body>
         <div className="min-h-screen flex flex-col">
-          <header className="sticky top-0 z-30 bg-ink/95 backdrop-blur border-b border-line">
-            <div className="mx-auto max-w-[1440px] px-4 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
-              <Link href="/" aria-label="GroundTruth" className="flex items-center gap-2.5 shrink-0">
-                {/* A survey benchmark disk: the mark that fixes a known point. */}
-                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-                  <circle cx="9" cy="9" r="8" fill="none" stroke="#E0B33A" strokeWidth="1.5" />
-                  <circle cx="9" cy="9" r="2" fill="#E0B33A" />
-                  <path d="M9 0v3M9 15v3M0 9h3M15 9h3" stroke="#E0B33A" strokeWidth="1.5" />
-                </svg>
-                <span className="hidden min-[400px]:inline font-semibold tracking-tight text-bright">
-                  GroundTruth
-                </span>
+          <header className="sticky top-0 z-30 bg-paper/90 backdrop-blur-sm border-b border-rule">
+            <div className="mx-auto max-w-[1320px] px-4 sm:px-8 h-14 flex items-stretch gap-3 sm:gap-8">
+              <Link href="/" aria-label="GroundTruth, home" className="flex items-center shrink-0">
+                <Wordmark />
               </Link>
-
-              <nav className="flex items-center gap-1 text-sm">
-                {NAV.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="px-2 sm:px-3 py-1.5 rounded text-mute hover:text-bright hover:bg-raised transition-colors"
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-              </nav>
-
-              <div className="ml-auto hidden sm:block mono text-[11px] text-dim">
-                Kubernetes docs · version-aware RAG
-              </div>
+              <Nav />
+              <p className="ml-auto hidden md:flex items-center text-[13px] text-ink-3">
+                Kubernetes docs, answered with receipts
+              </p>
             </div>
           </header>
 
           <main className="flex-1">{children}</main>
+
+          <footer className="border-t border-rule mt-16">
+            <div className="mx-auto max-w-[1320px] px-4 sm:px-8 py-6 text-[13px] text-ink-3 flex flex-wrap gap-x-6 gap-y-2">
+              <span>Answers quote the Kubernetes documentation, licensed CC BY 4.0.</span>
+              <a href="https://github.com/hrdk6/GroundTruth" className="underline hover:text-ink">
+                Source, experiments and the audit on GitHub
+              </a>
+            </div>
+          </footer>
         </div>
       </body>
     </html>

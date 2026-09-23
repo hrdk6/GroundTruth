@@ -1,0 +1,95 @@
+{
+ "question": "How do I set a probe-level terminationGracePeriodSeconds?",
+ "recorded": {
+  "note": "A real response from POST /query, captured verbatim. The answer was first produced cold (trace 5b3c60bb) and this copy was replayed from the LLM cache.",
+  "first_run_trace_id": "5b3c60bb-5062-4e8e-8215-729287b70072",
+  "first_run_latency_ms": 41853,
+  "first_run_at": "2026-09-23T18:03:03.686726Z"
+ },
+ "response": {
+  "answer": "In Kubernetes 1.25 and later, you set a probe‑level `terminationGracePeriodSeconds` by adding the field inside the probe specification (e.g., `livenessProbe` or `startupProbe`). [1]  \nFor example, under a `livenessProbe` you can specify:\n\n```yaml\nlivenessProbe:\n  httpGet:\n    path: /healthz\n    port: liveness-port\n  failureThreshold: 1\n  periodSeconds: 60\n  terminationGracePeriodSeconds: 60   # overrides pod‑level value\n```\n\n[1]  \nNote that probe‑level `terminationGracePeriodSeconds` cannot be set for readiness probes; the API server will reject it. [1]",
+  "segments": [
+   {
+    "text": "In Kubernetes 1.25 and later, you set a probe‑level `terminationGracePeriodSeconds` by adding the field inside the probe specification (e.g., `livenessProbe` or `startupProbe`). [1]",
+    "display": "In Kubernetes 1.25 and later, you set a probe‑level `terminationGracePeriodSeconds` by adding the field inside the probe specification (e.g., `livenessProbe` or `startupProbe`). [1]",
+    "citations": [
+     1
+    ],
+    "factual": true,
+    "verdict": "supported",
+    "reason": ""
+   },
+   {
+    "text": "For example, under a `livenessProbe` you can specify: ```yaml livenessProbe: httpGet: path: /healthz port: liveness-port failureThreshold: 1 periodSeconds: 60 terminationGracePeriodSeconds: 60 # overrides pod‑level value ``` [1] Note that probe‑level `terminationGracePeriodSeconds` cannot be set for readiness probes; the API server will reject it. [1]",
+    "display": "For example, under a `livenessProbe` you can specify:\n\n```yaml\nlivenessProbe:\n  httpGet:\n    path: /healthz\n    port: liveness-port\n  failureThreshold: 1\n  periodSeconds: 60\n  terminationGracePeriodSeconds: 60   # overrides pod‑level value\n```\n\n[1]  \nNote that probe‑level `terminationGracePeriodSeconds` cannot be set for readiness probes; the API server will reject it. [1]",
+    "citations": [
+     1,
+     1
+    ],
+    "factual": true,
+    "verdict": "supported",
+    "reason": ""
+   }
+  ],
+  "citations": [
+   {
+    "marker": 1,
+    "chunk_id": 53819,
+    "source_path": "tasks/configure-pod-container/configure-liveness-readiness-startup-probes.md",
+    "version": "1.30",
+    "heading_path": "Configure Liveness, Readiness and Startup Probes > Configure Probes > Probe-level `terminationGracePeriodSeconds`",
+    "title": "Configure Liveness, Readiness and Startup Probes",
+    "url": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+    "text": "[Feature state: stable]\n\nIn 1.25 and above, users can specify a probe-level `terminationGracePeriodSeconds`\nas part of the probe specification. When both a pod- and probe-level\n`terminationGracePeriodSeconds` are set, the kubelet will use the probe-level value.\n\nWhen setting the `terminationGracePeriodSeconds`, please note the following:\n\n* The kubelet always honors the probe-level `terminationGracePeriodSeconds` field if \n  it is present on a Pod.\n\n* If you have existing Pods where the `terminationGracePeriodSeconds` field is set and\n  you no longer wish to use per-probe termination grace periods, you must delete\n  those existing Pods.\n\nFor example:\n\n```yaml\nspec:\n  terminationGracePeriodSeconds: 3600  # pod-level\n  containers:\n  - name: test\n    image: ...\n\n    ports:\n    - name: liveness-port\n      containerPort: 8080\n\n    livenessProbe:\n      httpGet:\n        path: /healthz\n        port: liveness-port\n      failureThreshold: 1\n      periodSeconds: 60\n      # Override pod-level terminationGracePeriodSeconds #\n      terminationGracePeriodSeconds: 60\n```\n\nProbe-level `terminationGracePeriodSeconds` cannot be set for readiness probes.\nIt will be rejected by the API server.",
+    "score": 0.03278688524590164
+   }
+  ],
+  "version_used": "1.30",
+  "version_reason": "no version given; using latest indexed",
+  "conflicts": [
+   {
+    "source_path": "tasks/configure-pod-container/configure-liveness-readiness-startup-probes.md",
+    "heading_path": "Configure Liveness, Readiness and Startup Probes > Configure Probes > Probe-level `terminationGracePeriodSeconds`",
+    "latest_version": "1.30",
+    "other_version": "1.26",
+    "latest_text": "[Feature state: stable]\n\nIn 1.25 and above, users can specify a probe-level `terminationGracePeriodSeconds`\nas part of the probe specification. When both a pod- and probe-level\n`terminationGracePeriodSeconds` are set, the kubelet will use the probe-level value.\n\nWhen setting the `terminationGracePeriodSeconds`, please note the following:\n\n* The kubelet always honors the probe-level `terminationGracePeriodSeconds` field if \n  it is present on a Pod.\n\n* If you have existing Pods where the `terminationGracePeriodSeconds` field is set and\n  you no longer wish to use per-probe termination grace per",
+    "other_text": "[Feature state: beta]\n\nPrior to release 1.21, the pod-level `terminationGracePeriodSeconds` was used\nfor terminating a container that failed its liveness or startup probe. This\ncoupling was unintended and may have resulted in failed containers taking an\nunusually long time to restart when a pod-level `terminationGracePeriodSeconds`\nwas set.\n\nIn 1.25 and beyond, users can specify a probe-level `terminationGracePeriodSeconds`\nas part of the probe specification. When both a pod- and probe-level \n`terminationGracePeriodSeconds` are set, the kubelet will use the probe-level value.\n\nNote:\nBeginning ",
+    "similarity": 0.5154
+   }
+  ],
+  "conflict_note": "\n\n**Version note:**\n- This section (Configure Liveness, Readiness and Startup Probes > Configure Probes > Probe-level `terminationGracePeriodSeconds`) differs in v1.26. The answer above is for v1.30; see `tasks/configure-pod-container/configure-liveness-readiness-startup-probes.md` in v1.26 for the older behaviour.",
+  "verification": {
+   "support_fraction": 1.0,
+   "citation_precision": 1.0,
+   "checked": 2,
+   "skipped_non_factual": 0,
+   "unsupported_count": 0,
+   "cost_usd": 0.0,
+   "sentences": [
+    {
+     "sentence": "In Kubernetes 1.25 and later, you set a probe‑level `terminationGracePeriodSeconds` by adding the field inside the probe specification (e.g., `livenessProbe` or `startupProbe`). [1]",
+     "citations": [
+      1
+     ],
+     "verdict": "supported",
+     "reason": ""
+    },
+    {
+     "sentence": "For example, under a `livenessProbe` you can specify: ```yaml livenessProbe: httpGet: path: /healthz port: liveness-port failureThreshold: 1 periodSeconds: 60 terminationGracePeriodSeconds: 60 # overrides pod‑level value ``` [1] Note that probe‑level `terminationGracePeriodSeconds` cannot be set for readiness probes; the API server will reject it. [1]",
+     "citations": [
+      1,
+      1
+     ],
+     "verdict": "supported",
+     "reason": ""
+    }
+   ]
+  },
+  "abstained": false,
+  "regenerated": true,
+  "config_name": "full",
+  "trace_id": "47c8cdd1-1b2b-4391-9419-877be480db1e",
+  "latency_ms": 568.86,
+  "cost_usd": 0.0
+ }
+}

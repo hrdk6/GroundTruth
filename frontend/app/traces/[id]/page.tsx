@@ -122,160 +122,167 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
 
   if (error) {
     return (
-      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-10">
         <ErrorNote message={error} />
-        <Link href="/traces" className="mt-4 inline-block text-brass hover:underline">
-          Back to traces
-        </Link>
+        <BackLink />
       </div>
     );
   }
 
   if (!trace) {
     return (
-      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-10">
         <Spinner label="Loading trace" />
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-8">
-      <Link href="/traces" className="text-sm text-mute hover:text-bright">
-        ← Traces
-      </Link>
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
 
-      <h1 className="mt-3 text-lg text-bright font-medium">{trace.question}</h1>
+  return (
+    <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-4 sm:pt-6">
+      <BackLink />
+
+      <h1 className="mt-4 text-[28px] sm:text-[34px] leading-[1.2] font-extrabold tracking-[-0.02em] text-ink max-w-[34ch] wrap-break-word">
+        {trace.question}
+      </h1>
 
       {trace.status !== "ok" && (
-        <div className="mt-4">
+        <div className="mt-5 max-w-[80ch]">
           <ErrorNote
             message={`This query failed: ${String(trace.meta?.error ?? "error")}${
               trace.meta?.message ? ` — ${String(trace.meta.message)}` : ""
-            }. The stage that raised is marked below.`}
+            }. The stage that raised is marked in red below.`}
           />
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3 rule pt-4">
+      <dl className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 border-y border-rule py-4">
         <Field label="Pipeline">{trace.config_name}</Field>
-        <Field label="Answered from">
-          {trace.version_used ? `v${trace.version_used}` : "—"}
-        </Field>
-        <Field label="Total">{formatMs(trace.latency_ms)}</Field>
+        <Field label="Answered from">{trace.version_used ? `v${trace.version_used}` : "—"}</Field>
+        <Field label="Total time">{formatMs(trace.latency_ms)}</Field>
         <Field label="Cost">{formatCost(trace.cost_usd)}</Field>
-        <Field label="Spans">{trace.spans.length}</Field>
+        <Field label="Stages">{trace.spans.length}</Field>
         <Field label="When">{formatTime(trace.started_at)}</Field>
-      </div>
+      </dl>
 
-      <div className="mt-8 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,460px)] gap-8">
+      <div className="mt-10 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-10 xl:gap-12">
         {/* ---------------- Waterfall ---------------- */}
-        <section>
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-sm text-mute">Stages</h2>
-            <span className="mono text-[11px] text-dim tnum">
-              0 — {formatMs(axis.totalMs)}
-            </span>
-          </div>
-          <div className="border border-line rounded-sm divide-y divide-line">
-            {trace.spans.map((span) => {
-              const [offset, width] = axis.bars[span.span_id] ?? [0, 1];
-              const isOpen = openSpan === span.span_id;
-              const failed = span.status !== "ok";
-              const count = Number(span.output?.count ?? NaN);
+        <section aria-label="Stages">
+          <h2 className="text-[20px] font-extrabold text-ink">Stages on one clock</h2>
+          <p className="mt-1 mb-4 text-[15px] text-ink-2 max-w-[62ch]">
+            Each bar starts when its stage started, so gaps and overlaps are real. Select a stage for its
+            inputs and outputs.
+          </p>
 
-              return (
-                <div key={span.span_id}>
-                  <button
-                    onClick={() => setOpenSpan(isOpen ? null : span.span_id)}
-                    aria-expanded={isOpen}
-                    className="w-full text-left px-3 py-2 hover:bg-panel/60 transition-colors"
+          <div className="sheet overflow-hidden">
+            {/* The axis: labelled ticks over the bar column. */}
+            <div className="hidden sm:flex items-end gap-3 px-4 pt-3 pb-2 border-b border-rule">
+              <span className="w-[10.5rem] shrink-0" />
+              <span className="relative flex-1 h-4">
+                {ticks.map((t) => (
+                  <span
+                    key={t}
+                    className={`absolute bottom-0 mono text-[11px] text-ink-3 tnum whitespace-nowrap ${
+                      t === 0 ? "" : t === 1 ? "-translate-x-full" : "-translate-x-1/2"
+                    }`}
+                    style={{ left: `${t * 100}%` }}
                   >
-                    {/* Below sm the bar takes a line of its own: beside four
-                        fixed columns it was squeezed to nothing. */}
-                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5">
-                      <span
-                        className="mono text-xs flex-1 sm:flex-none sm:w-[9.5rem] shrink-0"
-                        style={{ color: failed ? "var(--color-alarm)" : "var(--color-text)" }}
-                      >
-                        {span.name}
-                      </span>
+                    {formatMs(axis.totalMs * t)}
+                  </span>
+                ))}
+              </span>
+              <span className="w-16 shrink-0" />
+              <span className="w-16 shrink-0" />
+            </div>
 
-                      <span className="order-last sm:order-none basis-full sm:basis-auto flex-1 h-[10px] bg-line/50 rounded-[1px] relative overflow-hidden">
+            <div className="divide-y divide-rule">
+              {trace.spans.map((span) => {
+                const [offset, width] = axis.bars[span.span_id] ?? [0, 1];
+                const isOpen = openSpan === span.span_id;
+                const failed = span.status !== "ok";
+                const count = Number(span.output?.count ?? NaN);
+
+                return (
+                  <div key={span.span_id}>
+                    <button
+                      onClick={() => setOpenSpan(isOpen ? null : span.span_id)}
+                      aria-expanded={isOpen}
+                      className={`w-full text-left px-4 py-2.5 transition-colors ${isOpen ? "bg-paper" : "hover:bg-paper/60"}`}
+                    >
+                      {/* Below sm the bar takes a line of its own: beside four
+                          fixed columns it was squeezed to nothing. */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5">
                         <span
-                          className="absolute inset-y-0 rounded-[1px]"
-                          style={{
-                            left: `${offset}%`,
-                            width: `${width}%`,
-                            // A 3ms span on a 40s axis is still a span.
-                            minWidth: 2,
-                            backgroundColor: failed
-                              ? "var(--color-alarm)"
-                              : "var(--color-brass)",
-                            opacity: failed ? 1 : 0.75,
-                          }}
-                        />
-                      </span>
-
-                      {Number.isFinite(count) && (
-                        <span className="mono text-[11px] text-dim tnum w-16 text-right">
-                          {count} hits
+                          className="mono text-[13px] flex-1 sm:flex-none sm:w-[10.5rem] shrink-0"
+                          style={{ color: failed ? "var(--color-fail)" : "var(--color-ink)" }}
+                        >
+                          {span.name}
                         </span>
-                      )}
-                      <span className="mono text-xs text-text tnum w-16 text-right">
-                        {formatMs(span.duration_ms)}
-                      </span>
-                    </div>
-                  </button>
 
-                  {isOpen && (
-                    <div className="px-3 pb-3 bg-panel/40">
-                      <div className="grid sm:grid-cols-2 gap-3 mt-1">
-                        <SpanBlock title="Input" data={span.input} />
-                        <SpanBlock title="Output" data={stripTop(span.output)} />
+                        <span className="order-last sm:order-none basis-full sm:basis-auto flex-1 h-3 rounded-[3px] bg-well relative overflow-hidden">
+                          <span
+                            className="absolute inset-y-0 rounded-[3px]"
+                            style={{
+                              left: `${offset}%`,
+                              width: `${width}%`,
+                              // A 3ms span on a 40s axis is still a span.
+                              minWidth: 3,
+                              backgroundColor: failed ? "var(--color-fail)" : "var(--color-ink-2)",
+                            }}
+                          />
+                        </span>
+
+                        <span className="mono text-[12px] text-ink-3 tnum w-16 text-right">
+                          {Number.isFinite(count) ? `${count} hits` : ""}
+                        </span>
+                        <span className="mono text-[13px] text-ink tnum w-16 text-right">
+                          {formatMs(span.duration_ms)}
+                        </span>
                       </div>
-                      {Array.isArray(span.output?.top) && (
-                        <div className="mt-3">
-                          <div className="text-[11px] text-dim mb-1">
-                            Top results from this stage
-                          </div>
-                          <ol className="space-y-1">
-                            {(span.output.top as Array<Record<string, unknown>>)
-                              .slice(0, 10)
-                              .map((entry, index) => (
-                                <li
-                                  key={index}
-                                  className="mono text-[11px] text-mute flex gap-2"
-                                >
-                                  <span className="text-dim w-5 text-right tnum">
-                                    {index + 1}
-                                  </span>
-                                  <span className="flex-1 truncate text-text/80">
-                                    {String(entry.source_path ?? "")}
-                                  </span>
-                                  <span className="text-dim truncate max-w-[14rem]">
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-1 bg-paper">
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <SpanBlock title="Input" data={span.input} />
+                          <SpanBlock title="Output" data={stripTop(span.output)} />
+                        </div>
+                        {Array.isArray(span.output?.top) && (
+                          <div className="mt-4">
+                            <h3 className="text-[13px] font-bold text-ink mb-1.5">Top results from this stage</h3>
+                            <ol className="space-y-1">
+                              {(span.output.top as Array<Record<string, unknown>>).slice(0, 10).map((entry, index) => (
+                                <li key={index} className="mono text-[12px] text-ink-2 flex gap-2">
+                                  <span className="text-ink-3 w-5 text-right tnum">{index + 1}</span>
+                                  <span className="flex-1 truncate text-ink">{String(entry.source_path ?? "")}</span>
+                                  <span className="text-ink-3 truncate max-w-[14rem]">
                                     {cleanHeading(String(entry.heading_path ?? ""))}
                                   </span>
                                 </li>
                               ))}
-                          </ol>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                            </ol>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {trace.answer && (
             <>
-              <h2 className="text-sm text-mute mt-8 mb-3">Answer</h2>
-              <div className="border border-line rounded-sm px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap wrap-anywhere">
+              <h2 className="mt-10 text-[20px] font-extrabold text-ink">Final answer</h2>
+              <div className="mt-3 sheet px-5 py-4 text-[16px] leading-[1.65] text-ink whitespace-pre-wrap wrap-break-word">
                 <AnswerText
                   text={trace.answer}
                   citation={(marker, key) => (
-                    <span key={key} className="mono text-[11px] align-super px-0.5 text-brass">
+                    <span
+                      key={key}
+                      className="mono text-[12px] align-[0.35em] mx-0.5 px-1.5 rounded-[4px] border border-rule-strong"
+                    >
                       {marker}
                     </span>
                   )}
@@ -286,18 +293,17 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
         </section>
 
         {/* ---------------- Rank trail ---------------- */}
-        <aside>
-          <h2 className="text-sm text-mute mb-1">Rank trail</h2>
-          <p className="text-xs text-dim mb-3 max-w-prose">
-            Where each chunk placed at every stage. A number that climbs from left
-            to right is a chunk the pipeline demoted — a ranking miss you can point
-            at.
+        <aside aria-label="Rank trail">
+          <h2 className="text-[20px] font-extrabold text-ink">Rank trail</h2>
+          <p className="mt-1 mb-4 text-[15px] text-ink-2 max-w-[62ch]">
+            Where each excerpt placed at every stage, left to right. A number that climbs is an excerpt the
+            pipeline demoted: a ranking miss you can point at.
           </p>
 
           {chunks.length === 0 ? (
-            <p className="text-sm text-dim">This trace recorded no ranked results.</p>
+            <p className="text-ink-3">This trace recorded no ranked results.</p>
           ) : (
-            <div className="border border-line rounded-sm divide-y divide-line">
+            <ol className="sheet divide-y divide-rule overflow-hidden">
               {chunks.slice(0, 25).map((chunk) => {
                 const stages = STAGE_ORDER.filter((s) => chunk.ranks[s] != null);
                 const first = stages.length ? chunk.ranks[stages[0]] : null;
@@ -305,46 +311,56 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                 const demoted = first != null && last != null && last > first + 2;
 
                 return (
-                  <div key={chunk.chunk_id} className="px-3 py-2">
-                    <div className="mono text-[11px] text-text/85 truncate">
-                      {chunk.source_path}
-                      <span className="text-dim"> v{chunk.version}</span>
-                    </div>
-                    {chunk.heading_path && (
-                      <div className="mono text-[10px] text-dim truncate">
-                        {cleanHeading(chunk.heading_path)}
-                      </div>
-                    )}
-                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                      {stages.map((stage, index) => (
-                        <span key={stage} className="flex items-center gap-1.5">
-                          {index > 0 && <span className="text-dim text-[10px]">→</span>}
-                          <span
-                            className="mono text-[10px] px-1.5 py-0.5 rounded-[2px] border tnum"
-                            style={{
-                              borderColor:
-                                demoted && index === stages.length - 1
-                                  ? "var(--color-alarm)"
-                                  : "var(--color-line-bright)",
-                              color:
-                                demoted && index === stages.length - 1
-                                  ? "var(--color-alarm)"
-                                  : "var(--color-mute)",
-                            }}
-                          >
-                            {stage} {chunk.ranks[stage]}
+                  <li key={chunk.chunk_id} className="px-4 py-3">
+                    <p className="text-[14px] font-bold text-ink leading-snug">
+                      {cleanHeading(chunk.heading_path).split(" > ").slice(-1)[0] || chunk.source_path}
+                    </p>
+                    <p className="mono text-[12px] text-ink-3 truncate">
+                      {chunk.source_path} · v{chunk.version}
+                    </p>
+                    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                      {stages.map((stage, index) => {
+                        const alarm = demoted && index === stages.length - 1;
+                        return (
+                          <span key={stage} className="flex items-center gap-1.5">
+                            {index > 0 && (
+                              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                                <path d="M2 5h6M5.5 2.5 8 5 5.5 7.5" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.25" />
+                              </svg>
+                            )}
+                            <span
+                              className="mono text-[12px] px-2 py-0.5 rounded-[4px] border tnum"
+                              style={{
+                                borderColor: alarm ? "var(--color-fail)" : "var(--color-rule-strong)",
+                                color: alarm ? "var(--color-fail)" : "var(--color-ink-2)",
+                                backgroundColor: alarm ? "var(--color-fail-wash)" : "transparent",
+                              }}
+                            >
+                              {stage} <span className="font-bold">{chunk.ranks[stage]}</span>
+                            </span>
                           </span>
-                        </span>
-                      ))}
+                        );
+                      })}
                     </div>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ol>
           )}
         </aside>
       </div>
     </div>
+  );
+}
+
+function BackLink() {
+  return (
+    <Link href="/traces" className="inline-flex items-center gap-1.5 mt-4 text-[15px] text-ink-2 hover:text-ink">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+        <path d="M8.5 3 4.5 7l4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      All traces
+    </Link>
   );
 }
 
@@ -359,8 +375,8 @@ function SpanBlock({ title, data }: { title: string; data: Record<string, unknow
   const empty = !data || Object.keys(data).length === 0;
   return (
     <div>
-      <div className="text-[11px] text-dim mb-1">{title}</div>
-      <pre className="mono text-[11px] text-text/75 bg-ink border border-line rounded-sm p-2 overflow-x-auto max-h-48">
+      <h3 className="text-[13px] font-bold text-ink mb-1">{title}</h3>
+      <pre className="mono text-[12px] leading-relaxed text-ink-2 bg-well rounded-md p-3 overflow-x-auto max-h-56">
         {empty ? "—" : JSON.stringify(data, null, 2)}
       </pre>
     </div>

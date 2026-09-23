@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // The demo runs on `make dev`; a framework badge in the corner of a screen
+  // share or a README screenshot is not part of the product.
+  devIndicators: { appIsrStatus: false, buildActivity: false },
   experimental: {
     // The rewrite proxy gives up after 30s by default, and a `full` answer that
     // regenerates takes longer than that on the free tier: the backend

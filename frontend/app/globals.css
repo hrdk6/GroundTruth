@@ -1,74 +1,94 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   GroundTruth — an instrument readout, not a dashboard.
+   GroundTruth — an answer is a test run.
 
-   Dark ground because the trace waterfall is the core artifact and timelines
-   read better on dark (the same reason DevTools' performance panel and Jaeger
-   are dark). Brass accent because a survey benchmark — the literal "ground
-   truth" — is a brass disk set in stone.
+   Each claim is a case, judged supported, partly supported, or unsupported
+   against the excerpt it cites, and the page reads like a well-set test
+   report: ruled rows on white sheets over cool paper, not chat bubbles.
 
-   State is encoded by SHAPE first (filled / half / hollow verification marks);
-   colour is reserved for alarm. That keeps a dense answer from turning into
-   badge soup.
+   Light, because the reader is a reviewer at a desk in daylight who opened a
+   link from a README. Verdicts are drawn by fill first (solid, half, hollow)
+   and hue second, so they survive grayscale and colour blindness. Ultramarine
+   is spent on exactly one thing, asking; nothing else competes with it.
 --------------------------------------------------------------------------- */
 
 @theme {
-  --color-ink: #0f1419;
-  --color-panel: #151b23;
-  --color-raised: #1b222c;
-  --color-line: #242e3a;
-  --color-line-bright: #33404f;
-  --color-mute: #7c8b9e;
-  --color-dim: #576475;
-  --color-text: #dce3ec;
-  --color-bright: #f2f6fa;
+  --color-paper: #f3f4f1;
+  --color-sheet: #ffffff;
+  --color-well: #eaece7;
+  --color-rule: #dadcd6;
+  --color-rule-strong: #b8bcb3;
 
-  /* Brass: interactive, selected, and measured emphasis. Used sparingly. */
-  --color-brass: #e0b33a;
-  --color-brass-dim: #8a6f24;
+  --color-ink: #15171c;
+  --color-ink-2: #454a54;
+  --color-ink-3: #666c78;
 
-  /* Alarm only. */
-  --color-alarm: #e5645e;
-  --color-ok: #5bc98c;
+  --color-pass: #1e7a4c;
+  --color-pass-wash: #e2f0e7;
+  --color-partial: #8f5b0f;
+  --color-partial-fill: #d69e2e;
+  --color-partial-wash: #f6ecd6;
+  --color-fail: #b8322c;
+  --color-fail-wash: #f8e1de;
 
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Asking, and keyboard focus. Nothing else. */
+  --color-act: #2b44ff;
+  --color-act-deep: #1c30d6;
+  --color-act-wash: #e6e9ff;
+
+  --font-sans: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   html {
     -webkit-text-size-adjust: 100%;
+    scrollbar-color: var(--color-rule-strong) transparent;
   }
 
   body {
-    background-color: var(--color-ink);
-    color: var(--color-text);
+    background-color: var(--color-paper);
+    color: var(--color-ink);
     font-family: var(--font-sans);
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: 16px;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    caret-color: var(--color-act);
   }
 
-  /* Numeric data must align in columns to be comparable at a glance. */
-  .tnum {
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum";
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  a {
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
   }
 
   ::selection {
-    background: var(--color-brass);
+    background: var(--color-act-wash);
     color: var(--color-ink);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-brass);
+    outline: 2px solid var(--color-act);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: 3px;
+  }
+
+  input::placeholder {
+    color: var(--color-ink-3);
+  }
+
+  * {
+    scrollbar-width: thin;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -76,41 +96,89 @@
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
   }
 }
 
 @layer components {
-  /* A measuring rule: the structural device instead of card borders. */
-  .rule {
-    border-top: 1px solid var(--color-line);
-  }
-
-  /* Ticked rule — the section divider, echoing a ruler's scale. */
-  .rule-ticked {
-    background-image: linear-gradient(to right, var(--color-line) 1px, transparent 1px);
-    background-size: 8px 1px;
-    background-repeat: repeat-x;
-    height: 1px;
-  }
-
   .mono {
     font-family: var(--font-mono);
     font-variant-ligatures: none;
   }
+
+  /* Numbers in columns must line up to be comparable at a glance. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* The report sheet: white, one hairline, and a shadow with real offset. */
+  .sheet {
+    background: var(--color-sheet);
+    border: 1px solid var(--color-rule);
+    border-radius: 6px;
+    box-shadow:
+      0 1px 2px rgb(21 23 28 / 0.04),
+      0 6px 18px -8px rgb(21 23 28 / 0.1);
+  }
+
+  /* Small uppercase mono: the report's machine voice for verdicts and units. */
+  .machine {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
 }
 
-/* The one orchestrated motion: a citation lighting up its evidence. */
+/* --- The one authored motion: a claim pinning itself to its evidence. ---- */
+
+@keyframes leader-draw {
+  from {
+    stroke-dashoffset: var(--leader-length, 600);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.leader-path {
+  stroke-dasharray: var(--leader-length, 600);
+  animation: leader-draw 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @keyframes evidence-lock {
   0% {
-    background-color: color-mix(in srgb, var(--color-brass) 22%, transparent);
+    box-shadow:
+      0 0 0 3px var(--color-act-wash),
+      0 6px 18px -8px rgb(21 23 28 / 0.1);
   }
   100% {
-    background-color: transparent;
+    box-shadow:
+      0 0 0 0 transparent,
+      0 6px 18px -8px rgb(21 23 28 / 0.1);
   }
 }
 
 .evidence-lock {
-  animation: evidence-lock 900ms ease-out;
+  animation: evidence-lock 1100ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The wait: one unbroken stage line and a cursor that keeps walking it. It
+   loops on purpose -- the request reports nothing until it finishes, so the
+   line shows that time is passing, never which stage is running. */
+@keyframes stage-walk {
+  from {
+    left: -18%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.stage-cursor {
+  width: 18%;
+  animation: stage-walk 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }

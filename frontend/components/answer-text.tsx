@@ -10,6 +10,42 @@ import type { ReactNode } from "react";
  * literal backticks.
  */
 const FENCE = /```[\w-]*[^\S\n]*\n?([\s\S]*?)```/g;
+
+/**
+ * Source Markdown with its hard wraps undone.
+ *
+ * The docs are wrapped at about 80 columns, so an excerpt shown as stored
+ * breaks mid-sentence every line -- ragged and tiring to read. Lines inside a
+ * paragraph are joined; blank-line paragraphs, list items, headings, tables and
+ * fenced code keep their breaks. Only whitespace changes, never a word.
+ */
+export function reflow(text: string): string {
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    const previous = out[out.length - 1];
+    const startsBlock = /^([*+-]|\d+[.)])\s/.test(trimmed) || /^[#|>]/.test(trimmed);
+    const joinable =
+      previous !== undefined &&
+      previous.trim() !== "" &&
+      !previous.trim().startsWith("```") &&
+      trimmed !== "" &&
+      !startsBlock;
+    if (joinable) out[out.length - 1] = `${previous.replace(/\s+$/, "")} ${trimmed}`;
+    else out.push(trimmed === "" ? "" : startsBlock ? trimmed : line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n");
+}
 const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[\d+\])/g;
 
 export function AnswerText({
@@ -23,18 +59,22 @@ export function AnswerText({
   let last = 0;
   for (const match of text.matchAll(FENCE)) {
     const start = match.index ?? 0;
-    if (start > last) blocks.push(inline(text.slice(last, start), `t${start}`, citation));
+    let before = text.slice(last, start).replace(/\s+$/, "");
+    if (last > 0) before = before.replace(/^\s+/, "");
+    if (before) blocks.push(inline(before, `t${start}`, citation));
     blocks.push(
       <pre
         key={`c${start}`}
-        className="my-2 overflow-x-auto rounded-sm border border-line bg-panel px-3 py-2 mono text-[12px] leading-relaxed text-text"
+        className="my-3 overflow-x-auto rounded-md border border-rule bg-well px-4 py-3 mono text-[13.5px] leading-[1.65] text-ink"
       >
         <code>{match[1].replace(/\s+$/, "")}</code>
       </pre>,
     );
     last = start + match[0].length;
   }
-  if (last < text.length) blocks.push(inline(text.slice(last), `t${last}`, citation));
+  // Whitespace hugging a fence is layout, not content: the block has margins.
+  const after = last > 0 ? text.slice(last).replace(/^\s+/, "") : text.slice(last);
+  if (after) blocks.push(inline(after, `t${last}`, citation));
   return <>{blocks}</>;
 }
 
@@ -53,7 +93,9 @@ function inline(
           return (
             <code
               key={partKey}
-              className="mono text-[0.85em] px-1 py-px rounded-[2px] bg-raised text-bright"
+              // Smaller on a phone, so a 30-character identifier still fits
+              // the measure instead of breaking mid-word.
+              className="mono text-[0.78em] sm:text-[0.86em] px-[0.3em] py-[0.08em] rounded-[4px] bg-well text-ink"
             >
               {part.slice(1, -1)}
             </code>
@@ -61,7 +103,7 @@ function inline(
         }
         if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) {
           return (
-            <strong key={partKey} className="font-semibold text-bright">
+            <strong key={partKey} className="font-bold text-ink">
               {part.slice(2, -2)}
             </strong>
           );
