@@ -768,3 +768,61 @@ def test_leading_citations_with_punctuation_do_not_leave_an_empty_sentence() -> 
 
     pairs = split_sentences("Names hold 253 characters. [3][4]. Labels are short [1].")
     assert [c for _, c in pairs] == [[3, 4], [1]]
+
+
+def test_multi_hop_with_one_page_missing_is_a_retrieval_miss() -> None:
+    """Regression: attribution tested for ANY gold, recall for ALL of it.
+
+    A two-page item with one page retrieved scored recall 0 while attribution
+    called it a success, so the distribution under-reported the category that
+    scored 0.000 in every run.
+    """
+    page_a = gold(source_path="a.md", key_quote="alpha fact")
+    page_b = gold(source_path="b.md", key_quote="beta fact")
+    item = make_item(category="multi_hop", gold_evidence=[page_a, page_b])
+    found = make_candidate(1, source_path="a.md", text="the alpha fact is here")
+    retrieval = make_retrieval([found], dense=[found])
+    match = match_candidates(retrieval.candidates, item.gold_evidence)
+
+    result = classify_failure(
+        item,
+        retrieval,
+        final_match=match,
+        answered_correctly=False,
+        abstained=False,
+        generation_ran=False,
+    )
+    assert result.failure == "retrieval_miss"
+    assert "1 of 2" in result.detail
+
+
+def test_multi_hop_with_one_page_cut_is_a_ranking_miss() -> None:
+    page_a = gold(source_path="a.md", key_quote="alpha fact")
+    page_b = gold(source_path="b.md", key_quote="beta fact")
+    item = make_item(category="multi_hop", gold_evidence=[page_a, page_b])
+    a = make_candidate(1, source_path="a.md", text="the alpha fact is here")
+    b = make_candidate(2, source_path="b.md", text="the beta fact is here")
+    retrieval = make_retrieval([a], dense=[a, make_candidate(3, text="x"), b])
+    match = match_candidates(retrieval.candidates, item.gold_evidence)
+
+    result = classify_failure(
+        item, retrieval, final_match=match, answered_correctly=False, abstained=False
+    )
+    assert result.failure == "ranking_miss"
+    assert "dense rank 3" in result.detail, "the rank of the piece that was cut"
+
+
+def test_retrieval_only_success_is_never_a_generation_failure() -> None:
+    hit = make_candidate(9, text="the kubelet restarts the container")
+    retrieval = make_retrieval([hit])
+    match = match_candidates(retrieval.candidates, [gold()])
+
+    result = classify_failure(
+        make_item(),
+        retrieval,
+        final_match=match,
+        answered_correctly=False,
+        abstained=False,
+        generation_ran=False,
+    )
+    assert result.failure == "none"

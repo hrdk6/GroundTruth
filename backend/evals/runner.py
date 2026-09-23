@@ -352,7 +352,9 @@ def evaluate(
         result.ndcg_at_10 = ndcg_at_k(match, 10)
         result.in_context = context_match.all_found_within(k_final)
 
-        answered_correctly = bool(context_match.first_rank)
+        # Retrieval-only success means *all* gold reached the context, the
+        # same bar recall sets; a model verdict replaces it in full mode.
+        answered_correctly = result.in_context
         if mode == "full":
             verdict: JudgeVerdict = judge_answer(
                 client,

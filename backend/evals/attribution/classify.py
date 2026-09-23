@@ -50,10 +50,6 @@ class Attribution:
         return {"failure": self.failure, "detail": self.detail}
 
 
-def _gold_in_candidates(candidates: list[Candidate], gold: list[GoldEvidence]) -> bool:
-    return bool(match_candidates(candidates, gold).first_rank)
-
-
 def _gold_ignoring_version(candidates: list[Candidate], gold: list[GoldEvidence]) -> bool:
     """Whether the right *section* was retrieved, from any version."""
     for candidate in candidates:
@@ -112,32 +108,53 @@ def classify_failure(
         return Attribution("none", "")
 
     # --- retrieval vs ranking -------------------------------------------
+    # Counted per piece of evidence, not "any": recall@k needs *all* of an
+    # item's gold, so a multi-hop item with one of its two pages retrieved is a
+    # failure, and attribution has to say which piece went missing where. An
+    # any-gold test called that item a success while its recall scored zero.
     all_candidates: list[Candidate] = list(retrieval.candidates)
     for stage_candidates in retrieval.stage_outputs.values():
         all_candidates.extend(stage_candidates)
 
-    gold_anywhere = _gold_in_candidates(all_candidates, item.gold_evidence)
-    gold_in_context = bool(final_match.first_rank)
+    total = len(item.gold_evidence)
+    anywhere = match_candidates(all_candidates, item.gold_evidence)
+    never_retrieved = total - anywhere.covered()
+    cut_from_context = total - final_match.covered()
 
-    if not gold_anywhere:
-        if _gold_ignoring_version(all_candidates, item.gold_evidence):
+    if never_retrieved:
+        if not anywhere.covered() and _gold_ignoring_version(all_candidates, item.gold_evidence):
             return Attribution(
                 "version_error",
                 f"right section retrieved, but not in the required version "
                 f"({item.version or 'unspecified'}; answered from {answer_version})",
             )
-        return Attribution("retrieval_miss", "gold evidence was in no candidate set")
+        detail = (
+            "gold evidence was in no candidate set"
+            if never_retrieved == total
+            else f"{never_retrieved} of {total} pieces of gold evidence were in no candidate set"
+        )
+        return Attribution("retrieval_miss", detail)
 
-    if not gold_in_context:
+    if cut_from_context:
         best = None
         for stage_name, stage_candidates in retrieval.stage_outputs.items():
             stage_match = match_candidates(stage_candidates, item.gold_evidence)
-            if stage_match.best_rank is not None:
-                best = f"{stage_name} rank {stage_match.best_rank}"
+            dropped = [
+                rank
+                for index, rank in stage_match.first_rank.items()
+                if index not in final_match.first_rank
+            ]
+            if dropped:
+                best = f"{stage_name} rank {min(dropped)}"
                 break
         return Attribution(
             "ranking_miss", f"gold was retrieved ({best or 'in an earlier stage'}) but cut"
         )
+
+    if not generation_ran:
+        # Every piece of gold reached the context; with no answer produced,
+        # nothing downstream can have failed.
+        return Attribution("none", "all gold evidence reached the context")
 
     if item.version and answer_version and item.version != answer_version:
         return Attribution(
