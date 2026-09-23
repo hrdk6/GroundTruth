@@ -31,7 +31,8 @@ Legend: `[x]` done and verified · `[~]` built, partly verified · `[ ]` blocked
 
 - [x] Repo structure, `uv` project, Python 3.12, Docker Compose, Alembic
 - [x] Two-layer config, cached cost-aware LLM client, Makefile + `make.ps1`
-- [x] `GET /health` — verified live, reports `degraded` without a database
+- [x] **`GET /health` returns `status: "ok"`** against a live database with
+      pgvector — the Phase 0 acceptance criterion, met
 - [x] Migrations `0001`–`0003` applied to a live database
 - [ ] `make up` still unverified — Docker cannot start here. `make db-local` is
       the working substitute and is what CI's compose path is checked against.
@@ -91,17 +92,24 @@ Held out: `baseline` 0.100 → `hybrid` **0.700** on the `test` split.
 - [ ] **Judge validation — the outstanding gap.** The judge is the same model
       that wrote the answers, so correctness is self-assessed.
 
-## Phase 5 — Observability  `[~]`
+## Phase 5 — Observability  `[x]`
 
 - [x] Span per stage, `GET /traces`, `GET /traces/{id}`, `POST /feedback`
-- [x] Spans recorded through a live retrieval + generation path
-- [ ] Not exercised through the HTTP API against the running frontend
+- [x] **Verified through the HTTP API**: a live query records 7 spans, and the
+      rank trail reads `chunk 6405 → dense 4 → lexical 2 → rrf 1` — a chunk
+      dense ranked 4th that fusion promoted to first. That is the feature
+      doing its job on real data.
 
 ## Phase 6 — Frontend  `[x]`
 
 - [x] Ask, trace viewer with rank trail, experiments dashboard with deltas
-- [x] `tsc --noEmit` and `next build` clean; rendered and inspected in-browser
-- [ ] Not yet seen against a live answer in the browser
+- [x] `tsc --noEmit` and `next build` clean
+- [x] **Verified against the live backend**: the dashboard renders the real
+      baseline → hybrid comparison (recall@5 +0.500, `table_or_code` +1.000,
+      `factual` ±0, retrieval misses 9 → 2)
+- [x] Added a Dataset column and a mismatch warning after noticing the UI
+      could place a `fixture_golden` run beside a `golden_v1` one as if they
+      were comparable
 
 ## Phase 7 — CI, docs, demo  `[~]`
 

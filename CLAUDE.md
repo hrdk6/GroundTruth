@@ -106,29 +106,40 @@ These bit us once; they are encoded in `app/core/llm.py`.
 
 ## Where the project actually stands
 
-**Retrieval is measured; generation is not.** Seven experiments are recorded in
-`experiments/` and analysed in `EXPERIMENTS.md`, including one negative result
-(`hybrid_rerank`) that was reverted. `hybrid` is the best config: recall@5
-0.786 dev / 0.700 test, against a 0.286 / 0.100 baseline.
+**Everything runs and is measured. Total LLM spend: $0.00.** Nine experiments
+in `experiments/`, covering retrieval and generation. `hybrid` is the best
+retrieval config; `full` is the shipping pipeline. Read `EXPERIMENTS.md` before
+changing anything in the retrieval path.
 
-Everything that calls a model has **never run** — no API key here. That means
-no correctness, faithfulness, citation-precision, abstention or judge-agreement
-number exists. Do not let one appear without a run behind it: a fabricated
-number destroys the only thing this project is trying to demonstrate.
+**The one real gap: the judge is the model it judges.** `GT_GENERATION_MODEL`
+and `GT_CHEAP_MODEL` are both `nvidia/nemotron-3-super-120b-a12b`, so
+`answer_correctness` is self-assessed and inflated. Fixing it means pointing
+the cheap model somewhere else and running `python -m evals.judge.label
+--count 50` for a kappa. Until that exists, never quote a correctness number
+without the caveat.
 
-To carry on when a key is available:
+Running things again:
 
-1. `make db-local && make migrate`, then ingest (see the `--include` note above)
-2. `python -m evals.dataset.build --estimate` first — it prints a cost estimate
-   and refuses to spend without `--yes`
-3. `make eval CONFIG=configs/full.yaml SPLIT=dev MODE=full`
-4. `python -m evals.judge.label --count 50`, then `--report` for the kappa
-5. record every result in `EXPERIMENTS.md`, including the bad ones, and
-   `make results` to regenerate the README table
+```bash
+make db-local && make migrate          # Postgres + pgvector, no Docker
+make llm-check                         # verify provider before a long run
+cd backend && uv run python -m app.ingestion.run   --config ../configs/hybrid.yaml --versions 1.26 1.30 --include concepts tasks
+make eval CONFIG=configs/full.yaml SPLIT=dev MODE=full
+make results                           # regenerate the README table
+```
 
-Thresholds in `backend/evals/thresholds.yaml` are now set from a measured
-fixture baseline, so the CI gate can genuinely fail. Raising a floor after a
-real improvement is normal; lowering one to make a build green is not.
+Free-tier realities that cost time to learn:
+
+- **The NVIDIA catalogue lists ~82 models and serves almost none of them.** Of
+  58 chat models probed with a 25s timeout, 55 timed out or 404'd. Always
+  `make llm-check` before a long run.
+- **Reasoning models put their chain of thought in `reasoning_content`**, and
+  `max_tokens` caps the total. A budget sized for the visible answer gets eaten
+  by thinking and returns a truncated fragment of it, which looks like the
+  model ignoring instructions. `OpenAICompatibleProvider.MIN_MAX_TOKENS` is the
+  guard.
+- **Models do not always write `[1]`.** Nemotron emits the full-width `【1】`.
+  `normalize_citations` handles it; do not narrow that regex.
 
 ## Layout notes
 

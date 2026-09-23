@@ -137,6 +137,7 @@ export default function ExperimentsPage() {
                   <tr className="bg-panel text-left text-[11px] text-dim">
                     <th className="px-3 py-2 w-10" />
                     <th className="px-3 py-2 font-medium">Config</th>
+                    <th className="px-3 py-2 font-medium w-28">Dataset</th>
                     <th className="px-3 py-2 font-medium w-20">Split</th>
                     <th className="px-3 py-2 font-medium w-24">Mode</th>
                     <th className="px-3 py-2 font-medium w-40">Recall@5</th>
@@ -168,6 +169,9 @@ export default function ExperimentsPage() {
                           />
                         </td>
                         <td className="px-3 py-2 mono text-xs text-text">{run.config_name}</td>
+                        <td className="px-3 py-2 mono text-xs text-mute">
+                          {run.dataset_version ?? "—"}
+                        </td>
                         <td className="px-3 py-2 mono text-xs text-mute">{run.split}</td>
                         <td className="px-3 py-2 mono text-xs text-mute">{run.mode}</td>
                         <td className="px-3 py-2">
@@ -231,6 +235,19 @@ function Comparison({
           {head.dataset_size} items · {head.split}
         </span>
       </h2>
+
+      {base.dataset_version !== head.dataset_version && (
+        <div
+          role="alert"
+          className="mb-5 border-l-2 px-4 py-3 text-sm bg-panel"
+          style={{ borderColor: "var(--color-alarm)" }}
+        >
+          These runs used different golden sets (
+          <span className="mono text-xs">{base.dataset_version}</span> vs{" "}
+          <span className="mono text-xs">{head.dataset_version}</span>). The deltas below
+          are not a like-for-like comparison.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Headline metrics */}
