@@ -155,7 +155,11 @@ def test_unknown_key_is_rejected(tmp_path: Path) -> None:
 
 
 # --- settings -------------------------------------------------------------
-def test_database_url_built_from_parts() -> None:
+def test_database_url_built_from_parts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An exported DATABASE_URL wins over the parts by design, so a developer
+    # who has one set would otherwise see this fail for a reason unrelated to
+    # the code under test.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     s = Settings(
         _env_file=None,  # type: ignore[call-arg]
         postgres_user="u",

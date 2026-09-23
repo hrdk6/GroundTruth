@@ -29,3 +29,21 @@ how much.
 
 `scripts/generate_results_table.py` reads only `experiments/*.json`, so nothing
 in this directory reaches the README.
+
+## Superseded during the audit
+
+Four later records are also here. They are generation runs of `full` from two
+commits *inside* the audit, each replaced by a fix, and they exist so that the
+numbers EXPERIMENTS.md quotes about those fixes trace to a file. Each was
+reproduced from its commit after the fact, with every model call served from
+the LLM cache (`cost.cached_calls == cost.calls`), so they are exact replays of
+what those commits produced.
+
+| Record | Commit | Superseded by |
+|---|---|---|
+| `20260923T173236Z_full` (dev), `20260923T173252Z_full` (test) | `ba8bd3b` | conflict notes checked only for cited sections (`f42eb20`) |
+| `20260923T173311Z_full` (dev), `20260923T173329Z_full` (test) | `f42eb20` | the judge no longer sees citation markers (`48781b1`) |
+
+The replays needed `backend/app/models/` copied in: those commits predate the
+fix that stopped `.gitignore` from excluding it, which is itself one of the
+audit's findings.
