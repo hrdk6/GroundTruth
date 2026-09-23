@@ -191,20 +191,24 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                     aria-expanded={isOpen}
                     className="w-full text-left px-3 py-2 hover:bg-panel/60 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
+                    {/* Below sm the bar takes a line of its own: beside four
+                        fixed columns it was squeezed to nothing. */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5">
                       <span
-                        className="mono text-xs w-[9.5rem] shrink-0"
+                        className="mono text-xs flex-1 sm:flex-none sm:w-[9.5rem] shrink-0"
                         style={{ color: failed ? "var(--color-alarm)" : "var(--color-text)" }}
                       >
                         {span.name}
                       </span>
 
-                      <span className="flex-1 h-[10px] bg-line/50 rounded-[1px] relative overflow-hidden">
+                      <span className="order-last sm:order-none basis-full sm:basis-auto flex-1 h-[10px] bg-line/50 rounded-[1px] relative overflow-hidden">
                         <span
                           className="absolute inset-y-0 rounded-[1px]"
                           style={{
                             left: `${offset}%`,
                             width: `${width}%`,
+                            // A 3ms span on a 40s axis is still a span.
+                            minWidth: 2,
                             backgroundColor: failed
                               ? "var(--color-alarm)"
                               : "var(--color-brass)",
