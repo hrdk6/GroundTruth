@@ -35,6 +35,19 @@ export interface Verification {
   sentences?: SentenceVerification[];
 }
 
+/**
+ * One sentence of the answer, split by the server with the same function the
+ * verifier used. Rendering these -- instead of re-splitting `answer` in the
+ * browser -- is what keeps each verdict attached to the sentence it judged.
+ */
+export interface Segment {
+  text: string;
+  citations: number[];
+  factual: boolean;
+  verdict: Verdict | null;
+  reason: string;
+}
+
 export interface Conflict {
   source_path: string;
   heading_path: string;
@@ -47,12 +60,16 @@ export interface Conflict {
 
 export interface QueryResponse {
   answer: string;
+  segments: Segment[];
   citations: Citation[];
   version_used: string | null;
   version_reason: string;
   conflicts: Conflict[];
+  conflict_note: string;
   verification: Verification;
   abstained: boolean;
+  regenerated: boolean;
+  config_name: string;
   trace_id: string | null;
   latency_ms: number;
   cost_usd: number;
@@ -88,7 +105,23 @@ export interface Span {
 
 export interface TraceDetail extends TraceSummary {
   answer: string;
+  meta: Record<string, unknown>;
   spans: Span[];
+}
+
+/** A 95% percentile-bootstrap interval over per-item scores. */
+export interface Interval {
+  mean: number;
+  low: number;
+  high: number;
+  n: number;
+}
+
+/** Whether every gold quote could match some indexed chunk at all. */
+export interface Integrity {
+  evidence_total: number;
+  evidence_matchable: number;
+  recall_ceiling: number;
 }
 
 export interface ExperimentSummary {
@@ -98,14 +131,17 @@ export interface ExperimentSummary {
   mode: string;
   timestamp: string;
   git_sha: string | null;
+  git_dirty: boolean | null;
   dataset_version: string | null;
+  dataset_size: number | null;
   metrics: Record<string, number | null>;
+  confidence: Record<string, Interval>;
+  integrity: Partial<Integrity>;
   cost_usd: number | null;
 }
 
 export interface ExperimentDetail extends ExperimentSummary {
   dataset_size: number;
-  git_dirty?: boolean;
   config: { name: string; config_hash: string; chunker_name: string; values: unknown };
   metrics_by_category: Record<string, Record<string, number | null>>;
   attribution: Record<string, number>;
@@ -131,6 +167,28 @@ export interface ExperimentItem {
   attribution: string;
   attribution_detail: string;
   latency_ms: number;
+}
+
+/** B minus A for one metric, paired by item. */
+export interface PairedMetric {
+  metric: string;
+  n: number;
+  mean_a: number;
+  mean_b: number;
+  delta: number;
+  low: number;
+  high: number;
+  p_value: number;
+  wins: number;
+  losses: number;
+  distinguishable: boolean;
+}
+
+export interface Comparison {
+  a: string;
+  b: string;
+  method: string;
+  metrics: PairedMetric[];
 }
 
 export class ApiError extends Error {
@@ -184,7 +242,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<Record<string, unknown>>("/health"),
 
-  versions: () => request<{ versions: string[]; configs: string[] }>("/versions"),
+  versions: () =>
+    request<{ versions: string[]; configs: string[]; default_config: string }>("/versions"),
 
   query: (body: { question: string; version?: string | null; config_name?: string | null }) =>
     request<QueryResponse>("/query", { method: "POST", body: JSON.stringify(body) }),
@@ -199,4 +258,9 @@ export const api = {
   experiments: () => request<ExperimentSummary[]>("/experiments"),
 
   experiment: (id: string) => request<ExperimentDetail>(`/experiments/${id}`),
+
+  compare: (a: string, b: string) =>
+    request<Comparison>(
+      `/experiments/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    ),
 };
