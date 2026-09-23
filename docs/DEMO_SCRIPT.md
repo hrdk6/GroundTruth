@@ -15,7 +15,9 @@ make dev         # API on :8000, in one terminal
 (cd frontend && npm run dev)   # UI on :3000, in another
 ```
 
-Have `localhost:3000` open, and one trace from a question you asked beforehand.
+Have `localhost:3000` open, and ask the beat-1 question once beforehand: cold,
+it took 41.9 s on the free tier; asked again it replays from the LLM cache in
+well under a second.
 
 > **Prerequisite check.** Ingestion is CPU-bound: the scoped corpus takes about
 > six minutes per chunker. Do it before the demo, not during it. On the free
@@ -27,12 +29,18 @@ Have `localhost:3000` open, and one trace from a question you asked beforehand.
 ## 1 · The problem, in one question (30s)
 
 Open **Ask** — it defaults to the `full` pipeline. Ask something whose answer
-changed between releases; the seccomp tutorial is a reliable one:
+changed between releases:
 
-> *How do I create a Pod with a seccomp profile?*
+> *How do I set a probe-level terminationGracePeriodSeconds?*
 
-**Point at:** the **"This differs in other versions"** panel beneath the answer —
-the section as it reads in v1.30, beside how it read in v1.26.
+**Point at:** the **"This differs in other versions"** panel beneath the answer.
+The cited section reads *Feature state: stable* in v1.30 and *Feature state:
+beta* in v1.26, where it also carried a feature-gate caveat that no longer
+applies.
+
+A conflict note appears only when a section the answer actually **cites**
+differs between versions. A question about a page that changed somewhere else
+gets no panel — that is deliberate (EXPERIMENTS.md, measurement audit).
 
 **Say:** "Most RAG systems would blend the two releases into one confident
 paragraph. This answers for the latest version and shows what was different,
@@ -115,7 +123,7 @@ here is more than a judgment call."
 | 502 with a trace id | the pipeline raised | open the trace: the failing span is red and the error is shown |
 | Model errors or 60s+ latencies | free-tier model unavailable | `make llm-check`; the catalogue lists far more models than it serves |
 | No verification marks | the pipeline selector isn't `full` | switch it back to `full` |
-| No conflict panel | the question names a version, or its sections didn't change | ask without a version, about a page that changed |
+| No conflict panel | the question names a version, or the *cited* section didn't change | ask the beat-1 question, without a version |
 | Experiments page is empty | no records | `make eval CONFIG=configs/baseline.yaml` |
 
 ## What not to claim

@@ -55,7 +55,7 @@ that moved published numbers:
 And one that was not about measurement at all: **`.gitignore` had a bare
 `models/` that matched `backend/app/models/`**, so the ORM package had never
 been committed and no clone of the repo could run. A fresh clone now installs,
-passes all 252 tests and builds the frontend.
+passes all 255 tests and builds the frontend.
 
 Each is now guarded: every run audits whether its gold is matchable
 (`integrity.recall_ceiling`) and the CI gate fails if it is not.
@@ -194,7 +194,7 @@ post-filtering HNSW scans, and conflict detection being a lexical heuristic.
 
 ## Testing and CI
 
-227 unit tests and 25 integration tests, including a from-scratch Python BM25
+230 unit tests and 25 integration tests, including a from-scratch Python BM25
 that the SQL implementation must match to 1e-9, and an end-to-end run of the
 evaluation runner over the fixture index. Integration tests run against their own `_test` database — they
 truncate tables, so they never touch a corpus you ingested. They skip when no
