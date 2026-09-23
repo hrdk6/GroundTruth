@@ -62,7 +62,54 @@ def test_chunker_name_includes_parameters() -> None:
     a = PipelineConfig(name="a", chunking={"chunker": "fixed", "max_tokens": 512})  # type: ignore[arg-type]
     b = PipelineConfig(name="b", chunking={"chunker": "fixed", "max_tokens": 256})  # type: ignore[arg-type]
     assert a.chunker_name != b.chunker_name
-    assert a.chunker_name == "fixed-512-64"
+    assert a.chunker_name.startswith("fixed-512-64-r2-")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"chunking": {"chunker": "structure_aware", "min_tokens": 16}},
+        {"chunking": {"chunker": "structure_aware", "prepend_heading_path": False}},
+        {"embedding": {"model": "sentence-transformers/all-MiniLM-L6-v2"}},
+        {"embedding": {"document_prefix": "passage: "}},
+    ],
+)
+def test_chunk_identity_covers_everything_that_changes_a_vector(change: dict) -> None:
+    """Regression: the name used to be `strategy-size-overlap` only.
+
+    Two configs differing only in `min_tokens`, heading prepending, or the
+    embedding model shared rows, so ingesting the second one skipped every
+    document ("chunks already exist") and its experiment measured the first
+    one's index.
+    """
+    base = PipelineConfig(name="a", chunking={"chunker": "structure_aware"})  # type: ignore[arg-type]
+    merged = {
+        "chunking": {**base.chunking.model_dump(), **change.get("chunking", {})},
+        "embedding": {**base.embedding.model_dump(), **change.get("embedding", {})},
+    }
+    other = PipelineConfig(name="b", **merged)
+    assert other.chunker_name != base.chunker_name
+
+
+def test_chunk_identity_ignores_retrieval_settings() -> None:
+    """Retrieval experiments must reuse the same chunks, or none could share an index."""
+    hybrid = load_config("hybrid")
+    rerank = load_config("hybrid_rerank")
+    assert hybrid.config_hash != rerank.config_hash
+    assert hybrid.chunker_name == rerank.chunker_name
+
+
+def test_chunk_identity_includes_the_implementation_revision() -> None:
+    from app.core.pipeline import CHUNKER_REVISIONS
+
+    config = load_config("structure_aware")
+    assert f"-r{CHUNKER_REVISIONS['structure_aware']}-" in config.chunker_name
+
+
+def test_lexical_config_is_pinned_to_the_indexed_language() -> None:
+    """The tsv column is generated as `english`; any other query config silently mismatches."""
+    with pytest.raises(ValidationError):
+        PipelineConfig(name="x", retrieval={"lexical": {"text_search_config": "simple"}})  # type: ignore[arg-type]
 
 
 def test_to_record_carries_hash_and_values() -> None:

@@ -8,6 +8,16 @@ and no error is raised anywhere.
 
 Loading the tokenizer pulls only the vocabulary files, not the model weights,
 so this stays cheap. `SimpleTokenizer` exists for tests and for offline runs.
+
+**Chunkers must slice the source text, never `decode` token ids.** bge's
+tokenizer is uncased WordPiece, so `decode(encode(text))` is lossy: it
+lowercases, and it spaces out punctuation -- `--service-node-port-range`
+comes back as `- - service - node - port - range`. A chunker built on decode
+stores text that is no longer the documentation, so a reader sees mangled
+citations and an evaluation that matches gold quotes against chunk text scores
+a miss for a chunk that was retrieved correctly. `encode_with_offsets` exists
+so chunk boundaries can be *measured* in tokens while the chunk *text* is cut
+verbatim from the original.
 """
 
 from __future__ import annotations
@@ -23,8 +33,12 @@ log = get_logger(__name__)
 MODEL_MAX_TOKENS = 512
 
 
+Offsets = list[tuple[int, int]]
+
+
 class Tokenizer(Protocol):
     def encode(self, text: str) -> list[int]: ...
+    def encode_with_offsets(self, text: str) -> tuple[list[int], Offsets]: ...
     def decode(self, tokens: list[int]) -> str: ...
     def count(self, text: str) -> int: ...
 
@@ -43,13 +57,19 @@ class SimpleTokenizer:
         self._index: dict[str, int] = {}
 
     def encode(self, text: str) -> list[int]:
-        tokens = []
-        for word in self._SPLIT.findall(text):
+        return self.encode_with_offsets(text)[0]
+
+    def encode_with_offsets(self, text: str) -> tuple[list[int], Offsets]:
+        tokens: list[int] = []
+        offsets: Offsets = []
+        for match in self._SPLIT.finditer(text):
+            word = match.group(0)
             if word not in self._index:
                 self._index[word] = len(self._vocab)
                 self._vocab.append(word)
             tokens.append(self._index[word])
-        return tokens
+            offsets.append(match.span())
+        return tokens, offsets
 
     def decode(self, tokens: list[int]) -> str:
         return " ".join(self._vocab[t] for t in tokens if 0 <= t < len(self._vocab))
@@ -78,6 +98,17 @@ class HFTokenizer:
         # add_special_tokens=False: [CLS]/[SEP] are added at encode time by the
         # model, and counting them here would shrink every chunk by two tokens.
         return list(tok.encode(text, add_special_tokens=False))  # type: ignore[attr-defined]
+
+    def encode_with_offsets(self, text: str) -> tuple[list[int], Offsets]:
+        tok = self._load()
+        encoded = tok(  # type: ignore[operator]
+            text,
+            add_special_tokens=False,
+            return_offsets_mapping=True,
+            return_attention_mask=False,
+            verbose=False,  # sequences longer than 512 are expected here
+        )
+        return list(encoded["input_ids"]), [tuple(o) for o in encoded["offset_mapping"]]
 
     def decode(self, tokens: list[int]) -> str:
         tok = self._load()

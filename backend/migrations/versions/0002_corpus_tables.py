@@ -85,9 +85,7 @@ def upgrade() -> None:
     op.create_index("ix_chunks_document", "chunks", ["document_id"])
 
     # Lexical retrieval (Phase 3) ranks with ts_rank_cd over this index.
-    op.create_index(
-        "ix_chunks_tsv_gin", "chunks", ["tsv"], postgresql_using="gin"
-    )
+    op.create_index("ix_chunks_tsv_gin", "chunks", ["tsv"], postgresql_using="gin")
 
     # Dense retrieval. HNSW over cosine distance: `m` and `ef_construction` are
     # pgvector's defaults, which are a reasonable build-time/recall trade-off
