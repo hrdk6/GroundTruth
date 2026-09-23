@@ -230,7 +230,13 @@ class CrossEncoderReranker:
             self._model = CrossEncoder(self.model_name, device="cpu")
         return self._model
 
-    def rerank(self, query: str, candidates: list[Candidate], *, top_k: int) -> list[Candidate]:
+    def rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
+        """Every candidate, re-ordered. The caller decides where to cut.
+
+        Returning the full ordering rather than the top k is what lets the
+        evaluation measure recall@10 after reranking, and lets a trace show a
+        chunk the reranker demoted to rank 17 instead of making it vanish.
+        """
         if not candidates:
             return []
 
@@ -244,7 +250,7 @@ class CrossEncoderReranker:
         ranked = sorted(candidates, key=lambda c: c.scores["rerank"], reverse=True)
         for position, candidate in enumerate(ranked, start=1):
             candidate.ranks["rerank"] = position
-        return ranked[:top_k]
+        return ranked
 
 
 _reranker_cache: dict[str, CrossEncoderReranker] = {}

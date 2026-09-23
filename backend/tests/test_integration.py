@@ -270,7 +270,9 @@ def test_conflict_detection_finds_a_cross_version_difference(ingested, db_sessio
     """The fixture corpus was selected for pages that differ between versions."""
     from app.ingestion.embed import get_embedder
 
-    vector = get_embedder(config.embedding).embed_query("security context for a pod")
+    # The seccomp tutorial's "Create a Pod with a seccomp profile" section was
+    # rewritten between 1.26 and 1.28 -- a genuine change, not a chunking echo.
+    vector = get_embedder(config.embedding).embed_query("create a pod with a seccomp profile")
     candidates = dense_search(db_session, vector, config, version="1.28")
 
     conflicts = detect_conflicts(
@@ -281,13 +283,15 @@ def test_conflict_detection_finds_a_cross_version_difference(ingested, db_sessio
         all_versions=FIXTURE_VERSIONS,
         max_sections=10,
     )
-    # Every fixture page differs across the two versions by construction, so
-    # at least one retrieved section should have a differing counterpart.
-    assert isinstance(conflicts, list)
+    # The fixture pages were chosen because they differ across the two
+    # versions, so a query about them must surface at least one conflict. (This
+    # used to assert only `isinstance(conflicts, list)`, which cannot fail.)
+    assert conflicts, "expected at least one section that differs between 1.26 and 1.28"
+    assert any("seccomp" in c.source_path for c in conflicts)
     for conflict in conflicts:
         assert conflict.latest_version == "1.28"
         assert conflict.other_version == "1.26"
-        assert conflict.similarity < 1.0
+        assert conflict.similarity < 0.92
 
 
 def test_a_tombstoned_document_is_resurrected_when_it_reappears(
@@ -344,3 +348,160 @@ def test_a_tombstoned_document_is_resurrected_when_it_reappears(
         )
     ).scalar_one()
     assert alive == 1, "an unchanged page that reappears must be resurrected"
+
+
+def test_a_restored_page_whose_content_changed_is_re_chunked(
+    ingested, db_session, config, tmp_path
+) -> None:
+    """Regression: resurrection skipped straight past re-chunking.
+
+    A tombstoned page that came back *with new content* was un-deleted and
+    then skipped, so it kept its old chunks under its old hash, and retrieval
+    served text the page no longer contained.
+    """
+    import shutil
+
+    partial = tmp_path / "partial"
+    shutil.copytree(FIXTURE_CORPUS, partial)
+    victim = sorted((partial / "1.28").rglob("*.md"))[1]
+    victim_path = victim.relative_to(partial / "1.28").as_posix()
+    original = victim.read_text(encoding="utf-8")
+    victim.unlink()
+    ingest(db_session, config, versions=["1.28"], root=partial, fetch=False)
+    db_session.commit()
+
+    changed = tmp_path / "changed"
+    shutil.copytree(FIXTURE_CORPUS, changed)
+    marker = "Zyzzyva-marker-sentence for the resurrection test."
+    (changed / "1.28" / victim_path).write_text(
+        original + f"\n\n## Resurrected\n\n{marker}\n", encoding="utf-8"
+    )
+    stats = ingest(db_session, config, versions=["1.28"], root=changed, fetch=False)
+    db_session.commit()
+
+    assert stats.documents_restored == 1
+    assert stats.chunks_embedded > 0, "changed content must be re-chunked and re-embedded"
+    texts = db_session.execute(
+        select(Chunk.text)
+        .join(Document, Document.id == Chunk.document_id)
+        .where(
+            Document.source_path == victim_path,
+            Document.version == "1.28",
+            Chunk.chunker_name == config.chunker_name,
+        )
+    ).scalars()
+    assert any(marker in t for t in texts)
+
+    # Leave the corpus as the other tests expect it.
+    ingest(db_session, config, versions=["1.28"], root=FIXTURE_CORPUS, fetch=False)
+    db_session.commit()
+
+
+def test_ingesting_an_older_version_alone_keeps_the_newest_as_latest(
+    ingested, db_session, config
+) -> None:
+    """Regression: `latest` was computed from the run's versions, not the index's.
+
+    Ingesting `--versions 1.26` into a database that also held 1.28 flagged
+    the 1.26 copies as the latest ones.
+    """
+    ingest(db_session, config, versions=["1.26"], root=FIXTURE_CORPUS, fetch=False)
+    db_session.commit()
+
+    flagged = set(
+        db_session.execute(
+            select(Document.version).where(Document.is_latest_for_path.is_(True))
+        ).scalars()
+    )
+    shared = db_session.execute(
+        select(Document.source_path)
+        .where(Document.deleted_at.is_(None))
+        .group_by(Document.source_path)
+        .having(func.count() > 1)
+    ).scalars()
+    for source_path in shared:
+        latest = (
+            db_session.execute(
+                select(Document.version).where(
+                    Document.source_path == source_path, Document.is_latest_for_path.is_(True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert latest == ["1.28"], source_path
+    assert "1.28" in flagged
+
+
+def test_every_fixture_gold_quote_is_matchable_by_a_chunk(ingested, db_session, config) -> None:
+    """The index can express every gold hit: recall is not capped by chunking.
+
+    The document-level check (`test_fixture_quotes_exist_in_the_fixture_corpus`)
+    passed the whole time the fixed chunker was lowercasing its text. This is
+    the same check one layer down, where it matters.
+    """
+    from evals.integrity import audit_gold_evidence
+
+    for name in ("hybrid", "baseline"):
+        chunker_config = load_config(name)
+        if chunker_config.chunker_name != config.chunker_name:
+            ingest(
+                db_session,
+                chunker_config,
+                versions=FIXTURE_VERSIONS,
+                root=FIXTURE_CORPUS,
+                fetch=False,
+            )
+            db_session.commit()
+        report = audit_gold_evidence(
+            db_session, chunker_config, load_dataset("fixture_golden.jsonl")
+        )
+        assert report.ok, [issue.to_dict() for issue in report.issues]
+        assert report.recall_ceiling == 1.0
+
+
+def test_ranked_list_runs_deeper_than_the_context(ingested, db_session, config) -> None:
+    result, _ = Retriever(config).retrieve(db_session, "How is memory measured?", version="1.28")
+    assert len(result.candidates) == config.retrieval.k_final
+    assert len(result.ranked) > len(result.candidates), "ranking metrics need the full list"
+    assert result.ranked[: len(result.candidates)] == result.candidates
+
+
+# ---------------------------------------------------------------------------
+# API against the database
+# ---------------------------------------------------------------------------
+def test_feedback_for_an_unknown_trace_is_rejected(ingested, db_session) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    client = TestClient(create_app())
+    response = client.post("/feedback", json={"trace_id": "no-such-trace", "helpful": True})
+    assert response.status_code == 404
+
+
+def test_a_failed_query_still_leaves_a_trace(ingested, db_session, monkeypatch) -> None:
+    """The failed query is the one most worth a trace, and it used to get none:
+    the request's transaction rolled back and took the trace with it."""
+    from fastapi.testclient import TestClient
+
+    from app.generation.answer import AnswerService
+    from app.main import create_app
+
+    def explode(self, session, question, *, version=None, tracer=None):  # type: ignore[no-untyped-def]
+        assert tracer is not None
+        with tracer.span("dense"):
+            raise RuntimeError("the index is on fire")
+
+    monkeypatch.setattr(AnswerService, "answer", explode)
+    client = TestClient(create_app())
+    response = client.post("/query", json={"question": "What is a Pod?", "config_name": "hybrid"})
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "RuntimeError" in detail and "trace " in detail
+
+    trace_id = detail.rsplit("trace ", 1)[1].rstrip(").")
+    trace = client.get(f"/traces/{trace_id}").json()
+    assert trace["status"] == "error"
+    assert trace["meta"]["error"] == "RuntimeError"
+    assert [s["status"] for s in trace["spans"]] == ["error"]

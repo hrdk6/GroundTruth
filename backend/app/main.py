@@ -1,6 +1,6 @@
 """FastAPI application factory.
 
-Routers are added per phase; `/health` is the only one in Phase 0.
+Routers: health, query (+ feedback, experiments), traces, and admin ingestion.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import health, query, traces
+from app.api import admin, health, query, traces
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import get_settings
 
@@ -43,19 +43,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # The Next.js dev server is the only browser client; tighten before any
-    # deployment that is reachable from outside localhost.
+    # The Next.js dev server is the only browser client by default (and it
+    # proxies, so it rarely needs CORS at all). `GT_CORS_ORIGINS` widens it
+    # for a deployment; it is never `*`, because the API sets credentials.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origins=get_settings().gt_cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "X-Admin-Token"],
     )
 
     app.include_router(health.router)
     app.include_router(query.router)
     app.include_router(traces.router)
+    app.include_router(admin.router)
     return app
 
 

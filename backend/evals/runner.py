@@ -40,13 +40,18 @@ from app.core.settings import REPO_ROOT, get_settings
 from app.generation.answer import AnswerService
 from app.retrieval.retriever import Retriever
 from evals.attribution.classify import Attribution, classify_failure, summarize
+from evals.compare import confidence_block
 from evals.dataset.schema import GoldenDataset, load_dataset
-from evals.judge.agreement import compute_agreement, load_labels
+from evals.integrity import audit_gold_evidence
+from evals.judge.agreement import answer_digest, compute_agreement, load_labels
 from evals.judge.judge import JudgeVerdict, judge_answer
 from evals.metrics.retrieval import (
     MatchResult,
     aggregate_retrieval,
     match_candidates,
+    ndcg_at_k,
+    recall_at_k,
+    reciprocal_rank,
 )
 
 log = get_logger(__name__)
@@ -102,23 +107,32 @@ class ItemResult:
     answerable: bool
     expected_version: str | None = None
 
-    # retrieval
+    # retrieval. Ranking metrics are over the full ranked list; `in_context`
+    # is whether all gold made the top-k_final cut the model actually saw.
     retrieved_chunk_ids: list[int] = field(default_factory=list)
     best_rank: int | None = None
+    ranked_depth: int = 0
     gold_found: int = 0
     gold_total: int = 0
+    recall_at_1: float = 0.0
     recall_at_5: float = 0.0
     recall_at_10: float = 0.0
     reciprocal_rank: float = 0.0
     ndcg_at_10: float = 0.0
+    in_context: bool = False
 
     # generation
     answer: str = ""
+    answer_sha: str | None = None
+    reference_answer: str | None = None
+    citations: list[dict[str, Any]] = field(default_factory=list)
     abstained: bool = False
     version_used: str | None = None
     judge_score: int | None = None
     judge_passed: bool | None = None
     judge_reason: str = ""
+    # True when the verdict came from the abstention rule, not the model.
+    judge_deterministic: bool | None = None
     support_fraction: float | None = None
     citation_precision: float | None = None
 
@@ -137,18 +151,25 @@ class ItemResult:
             "expected_version": self.expected_version,
             "retrieved_chunk_ids": self.retrieved_chunk_ids,
             "best_rank": self.best_rank,
+            "ranked_depth": self.ranked_depth,
             "gold_found": self.gold_found,
             "gold_total": self.gold_total,
+            "in_context": self.in_context,
+            "recall@1": round(self.recall_at_1, 4),
             "recall@5": round(self.recall_at_5, 4),
             "recall@10": round(self.recall_at_10, 4),
             "mrr": round(self.reciprocal_rank, 4),
             "ndcg@10": round(self.ndcg_at_10, 4),
             "answer": self.answer,
+            "answer_sha": self.answer_sha,
+            "reference_answer": self.reference_answer,
+            "citations": self.citations,
             "abstained": self.abstained,
             "version_used": self.version_used,
             "judge_score": self.judge_score,
             "judge_passed": self.judge_passed,
             "judge_reason": self.judge_reason,
+            "judge_deterministic": self.judge_deterministic,
             "support_fraction": self.support_fraction,
             "citation_precision": self.citation_precision,
             "attribution": self.attribution,
@@ -215,9 +236,12 @@ def _generation_metrics(results: list[ItemResult], generation_ran: bool = True) 
 
 
 def _aggregate(
-    results: list[ItemResult], matches: list[MatchResult], generation_ran: bool = True
+    results: list[ItemResult],
+    matches: list[MatchResult],
+    generation_ran: bool = True,
+    k_final: int | None = None,
 ) -> dict[str, Any]:
-    retrieval = aggregate_retrieval(matches).to_dict()
+    retrieval = aggregate_retrieval(matches, k_final=k_final).to_dict()
     return {**retrieval, **_generation_metrics(results, generation_ran)}
 
 
@@ -230,16 +254,30 @@ def evaluate(
     llm_client: LLMClient | None = None,
     limit: int | None = None,
     progress: bool = True,
+    split: str | None = None,
 ) -> dict[str, Any]:
     """Run one experiment and return the record that gets written to disk."""
     started = time.perf_counter()
     settings = get_settings()
     items = dataset.items[:limit] if limit else dataset.items
+    k_final = config.retrieval.k_final
 
+    # Audit the gold before scoring anything: a quote no chunk can contain is
+    # a guaranteed miss, and the metric would be measuring the index.
+    integrity = audit_gold_evidence(session, config, GoldenDataset(items, dataset.version))
+    if not integrity.ok and progress:
+        print(
+            f"WARNING: {len(integrity.issues)} gold evidence item(s) cannot match any chunk "
+            f"under {config.chunker_name}; recall is capped at "
+            f"{integrity.recall_ceiling:.3f}. See `integrity` in the record.",
+            file=sys.stderr,
+        )
+
+    # A fresh tracker per run, so the reported cost is this run's cost. A
+    # scoped view rather than a mutation, so the process-wide client -- and
+    # any other caller sharing it -- keeps its own totals.
     tracker = CostTracker()
-    client = llm_client or get_llm_client()
-    # A fresh tracker per run, so the reported cost is this run's cost.
-    client.tracker = tracker
+    client = (llm_client or get_llm_client()).with_tracker(tracker)
 
     retriever = Retriever(config, llm_client=client)
     service = AnswerService(config, llm_client=client) if mode == "full" else None
@@ -248,6 +286,7 @@ def evaluate(
     matches: list[MatchResult] = []
     attributions: list[Attribution] = []
     judge_results: dict[str, bool] = {}
+    answer_shas: dict[str, str] = {}
 
     for position, item in enumerate(items, start=1):
         if progress and position % 10 == 0:
@@ -269,7 +308,23 @@ def evaluate(
             answer_result = service.answer(session, item.question, version=item.version)
             retrieval = answer_result.retrieval
             assert retrieval is not None
-            result.answer = answer_result.answer
+            # What a reader of the text gets, version note included: that is
+            # what the judge grades and what a human labeller is shown.
+            result.answer = answer_result.full_text
+            result.answer_sha = answer_digest(result.answer)
+            result.reference_answer = item.reference_answer
+            # Kept so a human can check faithfulness from the record alone,
+            # without re-running retrieval against an index that may have moved.
+            result.citations = [
+                {
+                    "marker": c.marker,
+                    "source_path": c.source_path,
+                    "version": c.version,
+                    "heading_path": c.heading_path,
+                    "text": c.text[:1200],
+                }
+                for c in answer_result.citations
+            ]
             result.abstained = answer_result.abstained
             result.version_used = answer_result.version_used
             verification = answer_result.verification or {}
@@ -281,20 +336,23 @@ def evaluate(
             result.version_used = decision.version
             result.stage_timings_ms = retrieval.timings_ms
 
-        match = match_candidates(retrieval.candidates, item.gold_evidence)
+        # Ranking quality over the whole ordering; attribution over the context.
+        match = match_candidates(retrieval.ranked, item.gold_evidence)
+        context_match = match_candidates(retrieval.candidates, item.gold_evidence)
         matches.append(match)
 
         result.retrieved_chunk_ids = retrieval.chunk_ids()
+        result.ranked_depth = len(retrieval.ranked)
         result.best_rank = match.best_rank
         result.gold_found = match.covered()
-        from evals.metrics.retrieval import ndcg_at_k, recall_at_k, reciprocal_rank
-
+        result.recall_at_1 = recall_at_k(match, 1)
         result.recall_at_5 = recall_at_k(match, 5)
         result.recall_at_10 = recall_at_k(match, 10)
         result.reciprocal_rank = reciprocal_rank(match)
         result.ndcg_at_10 = ndcg_at_k(match, 10)
+        result.in_context = context_match.all_found_within(k_final)
 
-        answered_correctly = bool(match.first_rank)
+        answered_correctly = bool(context_match.first_rank)
         if mode == "full":
             verdict: JudgeVerdict = judge_answer(
                 client,
@@ -306,13 +364,18 @@ def evaluate(
             result.judge_score = verdict.score
             result.judge_passed = verdict.passed
             result.judge_reason = verdict.reason
-            judge_results[item.id] = verdict.passed
+            result.judge_deterministic = verdict.deterministic
+            # Rule-decided verdicts say nothing about the judge, so they are
+            # kept out of the agreement calculation (see agreement.py).
+            if not verdict.deterministic:
+                judge_results[item.id] = verdict.passed
+                answer_shas[item.id] = result.answer_sha or ""
             answered_correctly = verdict.passed
 
         attribution = classify_failure(
             item,
             retrieval,
-            final_match=match,
+            final_match=context_match,
             answered_correctly=answered_correctly,
             abstained=result.abstained if mode == "full" else False,
             answer_version=result.version_used,
@@ -330,7 +393,7 @@ def evaluate(
     for category in sorted({r.category for r in results}):
         indices = [i for i, r in enumerate(results) if r.category == category]
         by_category[category] = _aggregate(
-            [results[i] for i in indices], [matches[i] for i in indices], mode == "full"
+            [results[i] for i in indices], [matches[i] for i in indices], mode == "full", k_final
         )
 
     latencies = [r.latency_ms for r in results]
@@ -339,7 +402,9 @@ def evaluate(
     record: dict[str, Any] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "mode": mode,
-        "split": items[0].split if items else "unknown",
+        # The split that was *requested*. Reading it off the first item used
+        # to label an `--split all` run as whatever that item happened to be.
+        "split": split or (items[0].split if items else "unknown"),
         "dataset_version": dataset.version,
         "dataset_size": len(items),
         "git_sha": git_sha(),
@@ -356,8 +421,14 @@ def evaluate(
             "generation_model": config.generation.model or settings.gt_generation_model,
             "cheap_model": settings.gt_cheap_model,
         },
-        "metrics": _aggregate(results, matches, mode == "full"),
+        "metrics": _aggregate(results, matches, mode == "full", k_final),
         "metrics_by_category": by_category,
+        "integrity": integrity.to_dict(),
+        "ranking": {
+            "k_final": k_final,
+            "mrr_cutoff": 10,
+            "median_ranked_depth": percentile([float(r.ranked_depth) for r in results], 50),
+        },
         "attribution": summarize(attributions),
         "latency": {
             "p50_ms": round(percentile(latencies, 50), 2),
@@ -367,11 +438,16 @@ def evaluate(
         "cost": tracker.to_dict(),
         "items": [r.to_dict() for r in results],
     }
+    # Intervals are computed from the per-item scores just recorded, so they
+    # can always be recomputed from the file alone.
+    record["confidence"] = confidence_block(record)
 
     if mode == "full" and judge_results:
         labels = load_labels()
         if labels:
-            record["judge_agreement"] = compute_agreement(judge_results, labels).to_dict()
+            record["judge_agreement"] = compute_agreement(
+                judge_results, labels, answer_shas
+            ).to_dict()
 
     return record
 
@@ -391,10 +467,23 @@ def print_summary(record: dict[str, Any]) -> None:
     print(f"split:   {record['split']}  mode: {record['mode']}  items: {record['dataset_size']}")
     if record.get("git_dirty"):
         print("WARNING: working tree is dirty; this result is not reproducible from the SHA")
+    integrity = record.get("integrity") or {}
+    if integrity:
+        print(
+            f"gold:    {integrity['evidence_matchable']}/{integrity['evidence_total']} evidence "
+            f"matchable, recall ceiling {integrity['recall_ceiling']:.3f}"
+        )
     print(f"{'-' * 64}")
-    for key in ("recall@1", "recall@5", "recall@10", "mrr", "ndcg@10"):
+    confidence = record.get("confidence") or {}
+
+    def line(key: str) -> str:
+        interval = confidence.get(key)
+        ci = f"  95% CI [{interval['low']:.3f}, {interval['high']:.3f}]" if interval else ""
+        return f"  {key:<24} {metrics[key]:.4f}{ci}"
+
+    for key in ("recall@1", "recall@5", "recall@10", "mrr", "ndcg@10", "context_recall"):
         if key in metrics:
-            print(f"  {key:<24} {metrics[key]:.4f}")
+            print(line(key))
     for key in (
         "answer_correctness",
         "faithfulness",
@@ -404,7 +493,7 @@ def print_summary(record: dict[str, Any]) -> None:
         "version_correctness",
     ):
         if metrics.get(key) is not None:
-            print(f"  {key:<24} {metrics[key]:.4f}")
+            print(line(key))
 
     print(f"{'-' * 64}")
     print("  per category (recall@5):")
@@ -473,7 +562,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Evaluating {len(dataset)} items ({args.split}) with {config.name} [{args.mode}]...")
 
     with session_scope() as session:
-        record = evaluate(session, config, dataset, mode=args.mode, limit=args.limit)
+        record = evaluate(
+            session, config, dataset, mode=args.mode, limit=args.limit, split=args.split
+        )
 
     print_summary(record)
 

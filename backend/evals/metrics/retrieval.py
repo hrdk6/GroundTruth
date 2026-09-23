@@ -11,6 +11,17 @@ re-chunks on purpose.
 An item may carry several pieces of gold evidence (a multi-hop question needs
 two pages). Recall@k asks whether *all* required evidence is present, because
 retrieving half of what a question needs does not let the model answer it.
+
+Two depths, deliberately kept apart:
+
+* **Ranking metrics** (recall@1/5/10, MRR@10, nDCG@10) are computed over the
+  full ranked list the retriever produced, *before* it is cut to `k_final`.
+* **Context recall** is recall at `k_final` -- whether everything the answer
+  needs is in what the model is actually shown.
+
+Computing ranking metrics over the cut context instead makes recall@10 equal
+recall@5 by construction whenever `k_final` is 5, which is exactly what every
+early experiment in this repo reported.
 """
 
 from __future__ import annotations
@@ -84,9 +95,18 @@ def partial_recall_at_k(match: MatchResult, k: int) -> float:
     return sum(1 for r in match.first_rank.values() if r <= k) / match.total_gold
 
 
-def reciprocal_rank(match: MatchResult) -> float:
+MRR_CUTOFF = 10
+
+
+def reciprocal_rank(match: MatchResult, k: int = MRR_CUTOFF) -> float:
+    """1/rank of the first gold hit, or 0 beyond rank `k` (MRR@10 by default).
+
+    The cutoff makes the metric independent of how deep a config retrieves: a
+    hit at rank 38 of a 40-deep fused list should not score differently from a
+    miss just because another config only fetched 20.
+    """
     best = match.best_rank
-    return 1.0 / best if best else 0.0
+    return 1.0 / best if best and best <= k else 0.0
 
 
 def ndcg_at_k(match: MatchResult, k: int) -> float:
@@ -114,9 +134,10 @@ class RetrievalMetrics:
     mrr: float = 0.0
     ndcg_at_10: float = 0.0
     partial_recall_at_10: float = 0.0
+    context_recall: float | None = None
 
     def to_dict(self) -> dict[str, float | int]:
-        return {
+        out: dict[str, float | int] = {
             "count": self.count,
             "recall@1": round(self.recall_at_1, 4),
             "recall@5": round(self.recall_at_5, 4),
@@ -125,10 +146,19 @@ class RetrievalMetrics:
             "ndcg@10": round(self.ndcg_at_10, 4),
             "partial_recall@10": round(self.partial_recall_at_10, 4),
         }
+        if self.context_recall is not None:
+            out["context_recall"] = round(self.context_recall, 4)
+        return out
 
 
-def aggregate_retrieval(matches: list[MatchResult]) -> RetrievalMetrics:
-    """Mean of each metric. Items with no gold (unanswerable) must be excluded."""
+def aggregate_retrieval(
+    matches: list[MatchResult], *, k_final: int | None = None
+) -> RetrievalMetrics:
+    """Mean of each metric. Items with no gold (unanswerable) must be excluded.
+
+    `matches` must come from the full ranked list. With `k_final` given,
+    context recall is reported too: it is recall at the cut the model sees.
+    """
     scored = [m for m in matches if m.total_gold]
     if not scored:
         return RetrievalMetrics()
@@ -142,4 +172,7 @@ def aggregate_retrieval(matches: list[MatchResult]) -> RetrievalMetrics:
         mrr=sum(reciprocal_rank(m) for m in scored) / n,
         ndcg_at_10=sum(ndcg_at_k(m, 10) for m in scored) / n,
         partial_recall_at_10=sum(partial_recall_at_k(m, 10) for m in scored) / n,
+        context_recall=(
+            sum(recall_at_k(m, k_final) for m in scored) / n if k_final is not None else None
+        ),
     )

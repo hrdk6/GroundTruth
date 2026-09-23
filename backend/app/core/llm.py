@@ -26,10 +26,13 @@ cost. Experiment totals use `cost_usd`, so a re-run honestly reports ~$0.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
+import threading
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -154,7 +157,14 @@ class LLMResponse:
 
 @dataclass
 class CostTracker:
-    """Running totals for a request, an eval run, or a whole process."""
+    """Running totals for a request, an eval run, or a whole process.
+
+    Trackers chain: a request's tracker has the run's (or the process's) as
+    its `parent`, and every call is recorded at each level. That is what lets
+    a trace report *its own* cost while the API serves several requests at
+    once -- reading a delta off one shared tracker would bill each request for
+    whatever its neighbours spent in the meantime.
+    """
 
     calls: int = 0
     cached_calls: int = 0
@@ -163,16 +173,29 @@ class CostTracker:
     cost_usd: float = 0.0
     list_cost_usd: float = 0.0
     by_model: dict[str, float] = field(default_factory=dict)
+    parent: CostTracker | None = field(default=None, repr=False, compare=False)
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False, compare=False
+    )
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
 
     def record(self, response: LLMResponse) -> None:
-        self.calls += 1
-        if response.cached:
-            self.cached_calls += 1
-        self.input_tokens += response.usage.input_tokens
-        self.output_tokens += response.usage.output_tokens
-        self.cost_usd += response.cost_usd
-        self.list_cost_usd += response.list_cost_usd
-        self.by_model[response.model] = self.by_model.get(response.model, 0.0) + response.cost_usd
+        with self._lock:
+            self.calls += 1
+            if response.cached:
+                self.cached_calls += 1
+            self.input_tokens += response.usage.input_tokens
+            self.output_tokens += response.usage.output_tokens
+            self.cost_usd += response.cost_usd
+            self.list_cost_usd += response.list_cost_usd
+            self.by_model[response.model] = (
+                self.by_model.get(response.model, 0.0) + response.cost_usd
+            )
+        if self.parent is not None:
+            self.parent.record(response)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -239,7 +262,10 @@ class LLMCache:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write-then-rename so a crash mid-write cannot leave a partial entry.
-        tmp = path.with_suffix(".tmp")
+        # The temp name is unique per writer: the API answers requests on
+        # worker threads, and two of them caching the same key through one
+        # shared `.tmp` path could rename a half-written file into place.
+        tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
         tmp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         os.replace(tmp, path)
 
@@ -428,6 +454,23 @@ class LLMClient:
         )
         self.tracker = tracker or CostTracker()
         self._client: Any | None = None
+        # Views made by `with_tracker` share the provider through their root,
+        # so a scoped client never opens a second connection pool.
+        self._root: LLMClient = self
+
+    def with_tracker(self, tracker: CostTracker) -> LLMClient:
+        """The same client -- settings, cache, provider -- counting into `tracker`."""
+        view = copy.copy(self)
+        view.tracker = tracker
+        return view
+
+    def child(self) -> LLMClient:
+        """A view with its own tracker that also rolls up into this one's.
+
+        One per request: the request's cost is read from the child, and the
+        parent's running totals stay correct.
+        """
+        return self.with_tracker(CostTracker(parent=self.tracker))
 
     @property
     def default_model(self) -> str:
@@ -442,7 +485,8 @@ class LLMClient:
         return self.settings.gt_llm_provider
 
     def _ensure_client(self) -> Any:
-        if self._client is None:
+        root = self._root
+        if root._client is None:
             if not self.settings.has_llm_key:
                 expected = (
                     "ANTHROPIC_API_KEY"
@@ -458,12 +502,12 @@ class LLMClient:
             key = self.settings.llm_api_key
             assert key is not None  # guarded by has_llm_key above
             if self.settings.gt_llm_provider == "anthropic":
-                self._client = AnthropicProvider(key.get_secret_value())
+                root._client = AnthropicProvider(key.get_secret_value())
             else:
-                self._client = OpenAICompatibleProvider(
+                root._client = OpenAICompatibleProvider(
                     key.get_secret_value(), self.settings.gt_llm_base_url
                 )
-        return self._client
+        return root._client
 
     def _cost(self, model: str, result: ProviderResult) -> float:
         """Dollar cost of one call, per the active provider."""
@@ -555,8 +599,16 @@ class LLMClient:
             request_id=result.request_id,
         )
 
-        if use_cache:
+        # An empty completion is a failure -- typically a reasoning model that
+        # spent the whole budget thinking -- not an answer. Caching it would
+        # replay the failure on every future run of the same prompt, so it is
+        # returned (the callers treat it as unparseable) but never stored.
+        if use_cache and result.text.strip():
             self.cache.set(cache_key, self._to_cache(response))
+        elif not result.text.strip():
+            log.warning(
+                "llm.empty_response", model=model, stop_reason=result.stop_reason, cached=False
+            )
 
         self.tracker.record(response)
         log.info(

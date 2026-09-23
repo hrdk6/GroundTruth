@@ -8,7 +8,7 @@ from typing import Any
 import anyio
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 
 from app.core.db import session_scope
 from app.models import Feedback, Span, Trace
@@ -46,6 +46,9 @@ class SpanModel(BaseModel):
 
 class TraceDetail(TraceSummary):
     answer: str
+    # Citation/conflict counts on success; the error type and message when
+    # the query failed, which is when a trace is most worth reading.
+    meta: dict[str, Any] = {}
     spans: list[SpanModel]
 
 
@@ -55,35 +58,50 @@ async def list_traces(
     offset: int = Query(default=0, ge=0),
 ) -> list[TraceSummary]:
     def run() -> list[TraceSummary]:
+        # One round trip. Counting spans through the relationship loaded every
+        # span of every listed trace -- JSONB payloads included -- only to
+        # take len() of it, and fetched each trace's feedback separately.
+        span_counts = (
+            select(Span.trace_id, func.count().label("span_count"))
+            .group_by(Span.trace_id)
+            .subquery()
+        )
+        latest_vote = (
+            select(Feedback.helpful)
+            .where(Feedback.trace_id == Trace.id)
+            .order_by(desc(Feedback.created_at))
+            .limit(1)
+            .correlate(Trace)
+            .scalar_subquery()
+        )
+        statement = (
+            select(
+                Trace,
+                func.coalesce(span_counts.c.span_count, 0).label("span_count"),
+                latest_vote.label("vote"),
+            )
+            .outerjoin(span_counts, span_counts.c.trace_id == Trace.id)
+            .order_by(desc(Trace.started_at))
+            .limit(limit)
+            .offset(offset)
+        )
         with session_scope() as session:
-            rows = session.execute(
-                select(Trace).order_by(desc(Trace.started_at)).limit(limit).offset(offset)
-            ).scalars()
-            summaries = []
-            for trace in rows:
-                span_count = len(trace.spans)
-                vote = session.execute(
-                    select(Feedback.helpful)
-                    .where(Feedback.trace_id == trace.id)
-                    .order_by(desc(Feedback.created_at))
-                    .limit(1)
-                ).scalar_one_or_none()
-                summaries.append(
-                    TraceSummary(
-                        trace_id=trace.id,
-                        question=trace.question,
-                        config_name=trace.config_name,
-                        version_used=trace.version_used,
-                        abstained=trace.abstained,
-                        status=trace.status,
-                        latency_ms=trace.latency_ms,
-                        cost_usd=trace.cost_usd,
-                        started_at=trace.started_at,
-                        span_count=span_count,
-                        feedback=vote,
-                    )
+            return [
+                TraceSummary(
+                    trace_id=trace.id,
+                    question=trace.question,
+                    config_name=trace.config_name,
+                    version_used=trace.version_used,
+                    abstained=trace.abstained,
+                    status=trace.status,
+                    latency_ms=trace.latency_ms,
+                    cost_usd=trace.cost_usd,
+                    started_at=trace.started_at,
+                    span_count=span_count,
+                    feedback=vote,
                 )
-            return summaries
+                for trace, span_count, vote in session.execute(statement).all()
+            ]
 
     return await anyio.to_thread.run_sync(run)
 
@@ -134,6 +152,7 @@ async def get_trace(trace_id: str) -> TraceDetail:
                 span_count=len(span_models),
                 feedback=vote,
                 answer=trace.answer,
+                meta=trace.meta or {},
                 spans=span_models,
             )
 

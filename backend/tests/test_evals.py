@@ -574,3 +574,197 @@ def test_an_uncited_factual_sentence_is_still_unsupported() -> None:
     sentence, citations = pairs[0]
     assert citations == []
     assert is_factual(sentence)
+
+
+# ---------------------------------------------------------------------------
+# Ranking depth: ranked list vs. the k_final context
+#
+# Every early experiment computed recall@10 over the five-chunk context, so it
+# equalled recall@5 by construction. These pin the two depths apart.
+# ---------------------------------------------------------------------------
+def _ranked_with_gold_at(rank: int, depth: int = 20) -> list[Candidate]:
+    ranked = [make_candidate(i, source_path="other.md", text="nope") for i in range(1, depth + 1)]
+    ranked[rank - 1] = make_candidate(rank, text="the kubelet restarts the container")
+    return ranked
+
+
+def test_recall_at_10_sees_past_the_context_cut() -> None:
+    match = match_candidates(_ranked_with_gold_at(7), [gold()])
+    metrics = aggregate_retrieval([match], k_final=5)
+    assert metrics.recall_at_5 == 0.0
+    assert metrics.recall_at_10 == 1.0, "rank 7 is inside the top 10"
+    assert metrics.context_recall == 0.0, "but outside the five chunks the model saw"
+
+
+def test_context_recall_is_recall_at_k_final() -> None:
+    match = match_candidates(_ranked_with_gold_at(6), [gold()])
+    assert aggregate_retrieval([match], k_final=6).context_recall == 1.0
+    assert aggregate_retrieval([match], k_final=5).context_recall == 0.0
+
+
+def test_mrr_has_an_explicit_cutoff() -> None:
+    """A hit at rank 30 of a 40-deep fused list must not outscore a config that fetched 20."""
+    assert reciprocal_rank(match_candidates(_ranked_with_gold_at(10), [gold()])) == 0.1
+    assert reciprocal_rank(match_candidates(_ranked_with_gold_at(11), [gold()])) == 0.0
+
+
+def test_retrieval_result_ranked_defaults_to_the_context() -> None:
+    final = [make_candidate(1)]
+    assert RetrievalResult(candidates=final, query="q").ranked == final
+
+
+# ---------------------------------------------------------------------------
+# Gold integrity
+# ---------------------------------------------------------------------------
+def test_recall_ceiling_counts_items_not_evidence() -> None:
+    """A multi-hop item with one unmatchable page cannot be recalled at all."""
+    from evals.integrity import IntegrityReport
+
+    report = IntegrityReport(chunker_name="x", items_scored=4, items_matchable=3)
+    assert report.recall_ceiling == 0.75
+
+
+def test_gate_fails_when_gold_is_unmatchable() -> None:
+    """The check that would have caught the decode bug on day one."""
+    from evals.gate import build_checks
+
+    record = make_record({"recall@5": 0.9})
+    record["integrity"] = {"recall_ceiling": 0.3077}
+    checks = build_checks(record, {"integrity": {"recall_ceiling": 1.0}})
+    assert checks[0].name == "integrity.recall_ceiling"
+    assert checks[0].failed
+
+
+def test_gate_fails_when_a_record_predates_the_integrity_audit() -> None:
+    from evals.gate import build_checks
+
+    checks = build_checks(make_record({"recall@5": 0.9}), {"integrity": {"recall_ceiling": 1.0}})
+    assert checks[0].status == "missing"
+
+
+# ---------------------------------------------------------------------------
+# Judge agreement bookkeeping
+# ---------------------------------------------------------------------------
+def test_labels_for_a_different_answer_are_stale_not_counted() -> None:
+    """Re-running an experiment gives the same item id a new answer."""
+    labels = [
+        HumanLabel("a", correct=True, answer_sha="old"),
+        HumanLabel("b", correct=False, answer_sha="same"),
+    ]
+    report = compute_agreement({"a": True, "b": False}, labels, {"a": "new", "b": "same"})
+    assert report.n == 1
+    assert report.stale_labels == ["a"]
+
+
+def test_answer_digest_ignores_whitespace_only_changes() -> None:
+    from evals.judge.agreement import answer_digest
+
+    assert answer_digest("A  pod\nruns.") == answer_digest("A pod runs.")
+    assert answer_digest("A pod runs.") != answer_digest("A pod stops.")
+
+
+# ---------------------------------------------------------------------------
+# Golden set building
+# ---------------------------------------------------------------------------
+def test_generated_drafts_never_replace_curated_items() -> None:
+    """Regression: `build --yes` wrote its drafts over the curated golden set."""
+    from evals.dataset.build import merge_drafts
+
+    curated = make_item(id="kept", question="What restarts a container?", curated=True)
+    duplicate_question = make_item(id="new-id", question="what restarts a container?  ")
+    fresh = make_item(id="fresh", question="What is a DaemonSet?", curated=False)
+
+    added = merge_drafts([curated], [duplicate_question, fresh])
+    assert [item.id for item in added] == ["fresh"]
+    assert curated.curated, "existing items are never modified"
+
+
+# ---------------------------------------------------------------------------
+# Answer segments and concurrent verification
+# ---------------------------------------------------------------------------
+def test_segments_attach_verdicts_to_the_sentences_the_verifier_judged() -> None:
+    from app.generation.verify import SentenceVerification, VerificationReport, segment_answer
+
+    answer = "A name can contain no more than 253 characters. [3] Labels are shorter [1]."
+    report = VerificationReport(
+        sentences=[
+            SentenceVerification(
+                "A name can contain no more than 253 characters. [3]", [3], "supported"
+            ),
+            SentenceVerification("Labels are shorter [1].", [1], "partially"),
+        ]
+    )
+    segments = segment_answer(answer, report)
+    assert [s["verdict"] for s in segments] == ["supported", "partially"]
+    assert segments[0]["citations"] == [3], "the trailing marker stays with its sentence"
+
+
+def test_segments_without_verification_carry_no_verdict() -> None:
+    from app.generation.verify import segment_answer
+
+    segments = segment_answer("First claim [1]. Second claim [2].", None)
+    assert [s["verdict"] for s in segments] == [None, None]
+    assert [s["citations"] for s in segments] == [[1], [2]]
+
+
+class _VerdictByClaim:
+    """Supports claims mentioning 'alpha'; slow enough that threads interleave."""
+
+    name = "fake"
+
+    def invoke(self, **kwargs: object):  # type: ignore[no-untyped-def]
+        import time
+
+        from app.core.llm import ProviderResult
+
+        prompt = str(kwargs["prompt"])
+        claim = prompt.split("Claim:", 1)[1]
+        time.sleep(0.01 if "alpha" in claim else 0.03)
+        verdict = "supported" if "alpha" in claim else "unsupported"
+        return ProviderResult(text=f'{{"verdict": "{verdict}"}}', input_tokens=10, output_tokens=5)
+
+
+@pytest.mark.parametrize("workers", [1, 4])
+def test_concurrent_verification_preserves_sentence_order(llm_client, workers: int) -> None:  # type: ignore[no-untyped-def]
+    from app.generation.verify import verify_answer
+
+    llm_client._client = _VerdictByClaim()
+    answer = (
+        "The beta widget is configured per node [1]. "
+        "The alpha widget is configured per pod [1]. "
+        "The gamma widget has no default value at all [1]. "
+        "The alpha controller reconciles every ten seconds [1]."
+    )
+    candidates = [make_candidate(1)]
+    report = verify_answer(llm_client, answer, candidates, max_concurrency=workers)
+
+    assert [s.verdict for s in report.sentences] == [
+        "unsupported",
+        "supported",
+        "unsupported",
+        "supported",
+    ]
+    assert report.support_fraction == 0.5
+
+
+def test_a_mid_answer_trailing_citation_stays_with_its_sentence() -> None:
+    """Regression: the earlier fix only handled a citation after the *last* sentence.
+
+    Mid-answer, `...characters. [3] Labels...` split before the `[`, so `[3]`
+    was glued to the front of the next sentence: the first claim read as
+    uncited, and the second was checked against the wrong excerpt.
+    """
+    from app.generation.verify import split_sentences
+
+    pairs = split_sentences("Names hold 253 characters. [3] Labels hold 63 characters [1].")
+    assert pairs == [
+        ("Names hold 253 characters. [3]", [3]),
+        ("Labels hold 63 characters [1].", [1]),
+    ]
+
+
+def test_leading_citations_with_punctuation_do_not_leave_an_empty_sentence() -> None:
+    from app.generation.verify import split_sentences
+
+    pairs = split_sentences("Names hold 253 characters. [3][4]. Labels are short [1].")
+    assert [c for _, c in pairs] == [[3, 4], [1]]

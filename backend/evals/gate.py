@@ -101,6 +101,15 @@ def build_checks(record: dict[str, Any], thresholds: dict[str, Any]) -> list[Che
         for name, floor in (floors or {}).items():
             checks.append(Check(f"{category}.{name}", observed.get(name), floor))
 
+    # The index must be able to express every gold hit. A ceiling below 1.0
+    # means a chunker change broke quote matching -- which is a bug that
+    # *lowers every recall number at once* and looks like a regression in
+    # retrieval, so it gets its own named check rather than a confusing
+    # cascade of metric failures.
+    integrity = record.get("integrity") or {}
+    for name, floor in (thresholds.get("integrity") or {}).items():
+        checks.append(Check(f"integrity.{name}", integrity.get(name), floor))
+
     return checks
 
 
