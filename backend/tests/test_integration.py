@@ -572,3 +572,46 @@ def test_a_flag_in_the_question_is_not_read_as_negation(ingested, db_session, co
     )
     with_flag = lexical_search(db_session, "runAsGroup -o", any_config, version="1.28")
     assert any("runAsGroup" in c.text for c in with_flag)
+
+
+def test_an_edit_reaches_every_chunk_set_not_just_the_first(
+    ingested, db_session, config, tmp_path
+) -> None:
+    """Regression: freshness was judged by the *document's* hash.
+
+    Ingesting chunker A after an edit updated that hash, so chunker B then
+    saw "unchanged" and kept chunks cut from the old text, indefinitely.
+    """
+    import shutil
+
+    baseline = load_config("baseline")
+    for chunker_config in (config, baseline):
+        ingest(db_session, chunker_config, versions=["1.28"], root=FIXTURE_CORPUS, fetch=False)
+        db_session.commit()
+
+    edited = tmp_path / "edited"
+    shutil.copytree(FIXTURE_CORPUS, edited)
+    page = sorted((edited / "1.28").rglob("*.md"))[2]
+    source_path = page.relative_to(edited / "1.28").as_posix()
+    marker = "Quokka-marker sentence proving the edit reached this chunk set."
+    page.write_text(page.read_text(encoding="utf-8") + f"\n\n{marker}\n", encoding="utf-8")
+
+    for chunker_config in (config, baseline):  # A first, then B
+        ingest(db_session, chunker_config, versions=["1.28"], root=edited, fetch=False)
+        db_session.commit()
+
+    for chunker_config in (config, baseline):
+        texts = db_session.execute(
+            select(Chunk.text)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(
+                Document.source_path == source_path,
+                Document.version == "1.28",
+                Chunk.chunker_name == chunker_config.chunker_name,
+            )
+        ).scalars()
+        assert any(marker in t for t in texts), chunker_config.name
+
+    for chunker_config in (config, baseline):  # restore the shared corpus
+        ingest(db_session, chunker_config, versions=["1.28"], root=FIXTURE_CORPUS, fetch=False)
+        db_session.commit()

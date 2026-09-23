@@ -13,6 +13,14 @@ Chunks are keyed by `(document, chunker_name, index)`, so ingesting the same
 corpus under a second chunking strategy adds rows rather than replacing them,
 and both strategies stay queryable for the Phase 3 comparison.
 
+**Freshness is per chunk set, not per document.** Each chunk records the
+content hash it was cut from, and a document is skipped only when *this*
+chunker's chunks were cut from its *current* content. Checking the document's
+hash alone was wrong as soon as two chunkers existed: ingesting chunker A after
+an edit updated the document's hash, so chunker B then saw "unchanged" and kept
+chunks cut from the old text -- indefinitely, since nothing would ever look
+changed again.
+
 Two properties of *how* the work is done, both learned the hard way:
 
 * **Embedding is batched across documents.** A page yields a handful of
@@ -169,7 +177,12 @@ class _ChunkWriter:
                         chunk_type=piece.chunk_type,
                         token_count=piece.token_count,
                         embedding=next(vectors),
-                        meta={"embedding_model": self.embedder.model_name, **piece.meta},
+                        meta={
+                            "embedding_model": self.embedder.model_name,
+                            # What this chunk was cut from; see the module docstring.
+                            "content_hash": document.content_hash,
+                            **piece.meta,
+                        },
                     )
                 )
 
@@ -179,6 +192,24 @@ class _ChunkWriter:
         self.session.commit()  # checkpoint: see the module docstring
         log.info("ingest.checkpoint", chunks=len(texts), documents=len(self._pending))
         self._pending, self._pending_chunks = [], 0
+
+
+def _chunks_are_current(
+    session: Session, document_id: int, config: PipelineConfig, content_hash: str
+) -> bool:
+    """Whether this chunker's chunks for the document were cut from `content_hash`."""
+    return (
+        session.scalar(
+            select(Chunk.id)
+            .where(
+                Chunk.document_id == document_id,
+                Chunk.chunker_name == config.chunker_name,
+                Chunk.meta["content_hash"].astext == content_hash,
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 def _mark_latest(session: Session) -> None:
@@ -281,25 +312,14 @@ def ingest(
                 )
                 stats.documents_restored += 1
 
-            if record and record[1] == parsed.content_hash:
-                # Unchanged content, but the requested chunker may never have
-                # run over it. Only skip when this chunking already exists.
-                has_chunks = session.scalar(
-                    select(Chunk.id)
-                    .where(
-                        Chunk.document_id == record[0],
-                        Chunk.chunker_name == config.chunker_name,
-                    )
-                    .limit(1)
-                )
-                if has_chunks is not None:
-                    if not restored:
-                        stats.documents_unchanged += 1
-                    continue
+            if record and _chunks_are_current(session, record[0], config, parsed.content_hash):
+                if not restored:
+                    stats.documents_unchanged += 1
+                continue
 
-            # New, changed, or missing this chunking. A restored page whose
-            # content *also* changed lands here too: resurrecting it without
-            # re-chunking would serve its stale text under its new hash.
+            # New, changed, or this chunker's chunks were cut from other
+            # content -- including a page another chunker already refreshed,
+            # and a restored page whose content also changed.
             document = _upsert_document(session, parsed, record[0] if record else None)
             writer.replace(document, chunker.chunk(parsed.text, title=document.title))
             if record:
