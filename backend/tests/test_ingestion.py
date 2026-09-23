@@ -74,6 +74,65 @@ def test_code_blocks_are_never_touched_by_shortcode_stripping() -> None:
     assert "{{< keep >}}" in doc.text
 
 
+def test_heading_shortcodes_become_their_section_titles() -> None:
+    """Regression: stripped to nothing, they left empty headings on 266 pages,
+    so "Before you begin" and "What's next" shared one heading path."""
+    raw = (
+        '## {{% heading "prerequisites" %}}\n\nInstall kubectl.\n\n'
+        '## {{% heading "whatsnext" %}}\n\nRead more.\n\n'
+        '## {{< heading "somethingnew" >}}\n\nText.'
+    )
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert "## Before you begin" in doc.text
+    assert "## What's next" in doc.text
+    assert "## Somethingnew" in doc.text
+    assert "{{" not in doc.text
+
+
+def test_distinct_shortcode_headings_give_distinct_heading_paths(
+    tokenizer: SimpleTokenizer,
+) -> None:
+    raw = (
+        '## {{% heading "prerequisites" %}}\n\nInstall kubectl.\n\n'
+        '## {{% heading "whatsnext" %}}\n\nRead more.'
+    )
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    config = ChunkingConfig(
+        chunker="structure_aware", max_tokens=50, overlap_tokens=5, min_tokens=1
+    )
+    chunks = StructureAwareChunker(config, tokenizer).chunk(doc.text, title="T")
+    assert {c.heading_path for c in chunks} == {"T > Before you begin", "T > What's next"}
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected", "absent"),
+    [
+        ("Text <!-- TODO: fix --> after.", "Text  after.", "TODO"),
+        ("Before.\n<!--\nUPDATE THIS\nWHEN PROMOTING\n-->\nAfter.", "After.", "PROMOTING"),
+        ("<!-- steps -->\n\nReal step.", "Real step.", "steps"),
+    ],
+)
+def test_html_comments_are_dropped(raw: str, expected: str, absent: str) -> None:
+    """They never render, and they were contributor notes a model could cite."""
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert expected in doc.text
+    assert absent not in doc.text
+    assert "<!--" not in doc.text
+
+
+def test_html_comments_inside_code_blocks_are_kept() -> None:
+    raw = "Example:\n\n```html\n<!-- keep me: this is the example -->\n<p>hi</p>\n```"
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert "<!-- keep me: this is the example -->" in doc.text
+
+
+def test_a_fence_inside_a_comment_is_commented_out() -> None:
+    raw = "Intro.\n<!--\n```yaml\nold: example\n```\n-->\nAfter."
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert "old: example" not in doc.text
+    assert "After." in doc.text
+
+
 def test_relative_doc_links_become_absolute() -> None:
     raw = "See [the pod docs](/docs/concepts/workloads/pods/) for more."
     doc = parse_markdown(raw, source_path="a.md", version="1.28")
@@ -149,7 +208,7 @@ def test_fixed_chunker_overlaps_consecutive_windows(tokenizer: SimpleTokenizer) 
 
 def test_fixed_chunker_name_encodes_parameters(tokenizer: SimpleTokenizer) -> None:
     config = ChunkingConfig(chunker="fixed", max_tokens=256, overlap_tokens=32)
-    assert FixedChunker(config, tokenizer).name == "fixed-256-32"
+    assert FixedChunker(config, tokenizer).name == "fixed-256-32-r2"
 
 
 def test_fixed_chunker_returns_nothing_for_empty_text(tokenizer: SimpleTokenizer) -> None:
@@ -285,3 +344,105 @@ def test_parse_file_skips_empty_documents(tmp_path: Path) -> None:
     path = tmp_path / "empty.md"
     path.write_text("---\ntitle: Nothing\n---\n\n", encoding="utf-8")
     assert parse_file(path, root=tmp_path, version="1.28") is None
+
+
+# ---------------------------------------------------------------------------
+# Verbatim chunk text
+# ---------------------------------------------------------------------------
+# The regression these guard: chunk text used to be `tokenizer.decode(ids)`.
+# With bge's uncased WordPiece tokenizer that lowercases the text and spaces
+# out its punctuation, so a stored chunk was no longer the documentation, and
+# only 8 of the golden set's 26 quotes could match any fixed-size chunk.
+TRICKY = (
+    "Set `terminationGracePeriodSeconds` on the Pod.\n\n"
+    "Run `kubectl taint nodes node1 key1=value1:NoSchedule` first.\n\n"
+    "The flag `--service-node-port-range` (default: 30000-32767) controls it. "
+    "[Feature state: beta] applies to `$HOME/.kube/config`."
+)
+
+FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "corpus" / "1.28"
+# A long page with flags, YAML, and kubectl commands: everything decode mangled.
+FIXTURE_PAGE = FIXTURE_ROOT / "concepts" / "cluster-administration" / "manage-deployment.md"
+
+
+def _real_tokenizer():  # type: ignore[no-untyped-def]
+    """The embedding model's own tokenizer -- the one that lowercases on decode."""
+    from app.ingestion.tokenizer import HFTokenizer
+
+    tokenizer = HFTokenizer("BAAI/bge-small-en-v1.5")
+    try:
+        tokenizer.count("probe")
+    except Exception as exc:  # noqa: BLE001 - offline without a cached tokenizer
+        pytest.skip(f"bge tokenizer unavailable: {type(exc).__name__}")
+    return tokenizer
+
+
+def _is_verbatim(chunk_text: str, source: str) -> bool:
+    """Chunk text appears in the source, modulo the whitespace chunkers re-join."""
+    return " ".join(chunk_text.split()) in " ".join(source.split())
+
+
+@pytest.mark.parametrize("chunker_name", ["fixed", "structure_aware"])
+def test_chunks_are_verbatim_with_the_simple_tokenizer(
+    tokenizer: SimpleTokenizer, chunker_name: str
+) -> None:
+    config = ChunkingConfig(chunker=chunker_name, max_tokens=12, overlap_tokens=3, min_tokens=2)  # type: ignore[arg-type]
+    for chunk in build_chunker(config, tokenizer).chunk(TRICKY, title="T"):
+        assert _is_verbatim(chunk.text, TRICKY), chunk.text
+
+
+@pytest.mark.parametrize("chunker_name", ["fixed", "structure_aware"])
+def test_chunks_are_verbatim_with_the_real_tokenizer(chunker_name: str) -> None:
+    tokenizer = _real_tokenizer()
+    config = ChunkingConfig(chunker=chunker_name, max_tokens=24, overlap_tokens=4, min_tokens=2)  # type: ignore[arg-type]
+    chunks = build_chunker(config, tokenizer).chunk(TRICKY, title="T")
+    joined = " ".join(c.text for c in chunks)
+
+    for chunk in chunks:
+        assert _is_verbatim(chunk.text, TRICKY), chunk.text
+    # The exact strings decode used to destroy.
+    assert "`terminationGracePeriodSeconds`" in joined
+    assert "--service-node-port-range" in joined
+    assert "key1=value1:NoSchedule" in joined
+
+
+def test_fixed_chunks_of_a_real_page_are_verbatim() -> None:
+    """A whole fixture page, 512-token windows, the production tokenizer."""
+    tokenizer = _real_tokenizer()
+    page = parse_file(FIXTURE_PAGE, root=FIXTURE_ROOT, version="1.28")
+    assert page is not None
+    chunks = FixedChunker(ChunkingConfig(chunker="fixed"), tokenizer).chunk(page.text)
+
+    assert len(chunks) > 1, "the page should span several windows"
+    for chunk in chunks:
+        assert _is_verbatim(chunk.text, page.text)
+        assert chunk.token_count <= 512
+
+
+def test_oversized_paragraph_split_is_verbatim(tokenizer: SimpleTokenizer) -> None:
+    """The structure-aware path that also used decode: an over-long paragraph."""
+    paragraph = " ".join(f"Field`{i}`=value-{i}:ok." for i in range(80))
+    config = ChunkingConfig(
+        chunker="structure_aware", max_tokens=20, overlap_tokens=4, min_tokens=2
+    )
+    chunks = StructureAwareChunker(config, tokenizer).chunk(f"## Big\n\n{paragraph}\n")
+    assert len(chunks) > 2
+    for chunk in chunks:
+        assert _is_verbatim(chunk.text, paragraph), chunk.text
+
+
+def test_offsets_line_up_with_the_tokens(tokenizer: SimpleTokenizer) -> None:
+    text = "  alpha beta\n\ngamma  "
+    tokens, offsets = tokenizer.encode_with_offsets(text)
+    assert len(tokens) == len(offsets) == 3
+    assert [text[a:b] for a, b in offsets] == ["alpha", "beta", "gamma"]
+
+
+def test_markup_debris_does_not_become_a_chunk(tokenizer: SimpleTokenizer) -> None:
+    """Regression: `* ` left by a stripped include, or a lone `---`, was embedded."""
+    config = ChunkingConfig(
+        chunker="structure_aware", max_tokens=50, overlap_tokens=5, min_tokens=1
+    )
+    text = "## Before you begin\n\n* \n\n## Steps\n\n---\n\n## Real\n\nThe kubelet runs probes."
+    chunks = StructureAwareChunker(config, tokenizer).chunk(text, title="T")
+    assert [c.text for c in chunks] == ["The kubelet runs probes."]

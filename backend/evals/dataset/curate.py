@@ -108,10 +108,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     path = dataset.path or Path(args.dataset)
+    # A rejection is a decision too: without the `rejected` check, every
+    # session re-presented every item ever rejected.
     pending = [
         i
         for i in dataset.items
-        if (args.recurate or not i.curated)
+        if (args.recurate or (not i.curated and not i.meta.get("rejected")))
         and (args.category is None or i.category == args.category)
     ]
 

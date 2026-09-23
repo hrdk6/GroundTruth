@@ -27,15 +27,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="min-h-screen flex flex-col">
           <header className="sticky top-0 z-30 bg-ink/95 backdrop-blur border-b border-line">
-            <div className="mx-auto max-w-[1440px] px-4 sm:px-6 h-14 flex items-center gap-6">
-              <Link href="/" className="flex items-center gap-2.5 shrink-0">
+            <div className="mx-auto max-w-[1440px] px-4 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
+              <Link href="/" aria-label="GroundTruth" className="flex items-center gap-2.5 shrink-0">
                 {/* A survey benchmark disk: the mark that fixes a known point. */}
                 <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
                   <circle cx="9" cy="9" r="8" fill="none" stroke="#E0B33A" strokeWidth="1.5" />
                   <circle cx="9" cy="9" r="2" fill="#E0B33A" />
                   <path d="M9 0v3M9 15v3M0 9h3M15 9h3" stroke="#E0B33A" strokeWidth="1.5" />
                 </svg>
-                <span className="font-semibold tracking-tight text-bright">GroundTruth</span>
+                <span className="hidden min-[400px]:inline font-semibold tracking-tight text-bright">
+                  GroundTruth
+                </span>
               </Link>
 
               <nav className="flex items-center gap-1 text-sm">
@@ -43,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="px-3 py-1.5 rounded text-mute hover:text-bright hover:bg-raised transition-colors"
+                    className="px-2 sm:px-3 py-1.5 rounded text-mute hover:text-bright hover:bg-raised transition-colors"
                   >
                     {item.label}
                   </Link>
@@ -51,7 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </nav>
 
               <div className="ml-auto hidden sm:block mono text-[11px] text-dim">
-                Kubernetes docs · 1.26 / 1.28 / 1.30
+                Kubernetes docs · version-aware RAG
               </div>
             </div>
           </header>

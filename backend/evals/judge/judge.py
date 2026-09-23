@@ -6,7 +6,7 @@ An unvalidated judge is an opinion, not a metric. So this module ships with
 judge disagrees with a human as often as it agrees, every generation metric in
 the repo is noise, and a reader deserves to know that.
 
-Two rules keep the judge honest:
+Three rules keep the judge honest:
 
 * **It never sees the retrieved context.** It compares the answer to the
   reference. A judge shown the context starts grading whether the answer is
@@ -14,6 +14,9 @@ Two rules keep the judge honest:
 * **An abstention is correct only if the reference abstains.** Otherwise
   "I don't have enough information" would be a safe way to score well on
   everything.
+* **It never sees citation markers.** They are the verifier's business, and
+  to a model that has not been told what they are, `field[1][2]` reads as
+  array indexing.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from app.core.llm import LLMClient
 from app.core.logging import get_logger
 from app.generation.answer import is_abstention
 from app.generation.prompts import render_judge_prompt
+from app.generation.verify import normalize_citations
 
 log = get_logger(__name__)
 
@@ -42,6 +46,21 @@ class JudgeVerdict:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+_MARKERS = re.compile(r"\s*\[\d+\]")
+
+
+def strip_citations(answer: str) -> str:
+    """The answer as the judge should see it: substance, without `[n]` markers.
+
+    Citations are checked by the verifier, against the excerpts; the judge
+    compares substance with the reference and is never shown the excerpts, so
+    the markers mean nothing to it. Worse, they can read as content: given
+    `.spec.revisionHistoryLimit[1][2]`, the judge docked a correct answer for
+    "incorrect indices".
+    """
+    return _MARKERS.sub("", normalize_citations(answer)).strip()
 
 
 def _parse(text: str) -> tuple[int, bool, str] | None:
@@ -104,7 +123,7 @@ def judge_answer(
     if not answer.strip():
         return JudgeVerdict(1, False, "empty answer", deterministic=True)
 
-    system, user = render_judge_prompt(question, reference_answer, answer)
+    system, user = render_judge_prompt(question, reference_answer, strip_citations(answer))
     try:
         response = client.complete(
             user, system=system, model=model or client.cheap_model, max_tokens=256

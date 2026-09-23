@@ -94,6 +94,9 @@ ingest: ## Ingest the corpus: make ingest CONFIG=configs/baseline.yaml
 eval: ## Run an evaluation: make eval CONFIG=... SPLIT=dev MODE=retrieval|full
 	$(BACKEND) python -m evals.runner --config ../$(CONFIG) --split $(SPLIT) --mode $(MODE)
 
+compare: ## Paired comparison of two runs: make compare A=<experiment id> B=<experiment id>
+	$(BACKEND) python -m evals.compare $(A) $(B)
+
 results: ## Regenerate the README results table from experiments/
 	$(BACKEND) python ../scripts/generate_results_table.py
 

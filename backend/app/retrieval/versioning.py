@@ -39,6 +39,31 @@ _VERSION_PATTERN = re.compile(
 )
 # A bare "1.28" is only a version if it is not part of a larger number or a date.
 _BARE_NUMBER_CONTEXT = re.compile(r"(?:kubernetes|k8s|release|version|v)\b", re.IGNORECASE)
+# ...and not a quantity: "1.25 CPUs", "1.50 GiB", "1.10x", "1.20%".
+_UNIT_AFTER = re.compile(
+    r"^\s*(?:%|x\b|[kmgt]i?b?\b|[kmgt]i\b|bytes?\b|cpus?\b|cores?\b|vcpus?\b|ms\b|"
+    r"s\b|sec(?:ond)?s?\b|min(?:ute)?s?\b|h(?:ou)?rs?\b|replicas?\b|nodes?\b|pods?\b)",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_bare_release(question: str, match: re.Match[str]) -> bool:
+    """Whether an uncued `1.28` is a Kubernetes release rather than a number.
+
+    PROJECT_SPEC.md S8.4 lists a bare "1.28" as an explicit version, and users
+    do write "how does this work in 1.28?". Requiring a cue word made that
+    question silently answer from the latest release instead. The guard is
+    shape plus context: major version 1, a two-digit minor (every release
+    since 1.10), and no unit after it, so "1.5 GB" and "1.25 CPUs" stay
+    quantities.
+    """
+    major, minor = match.group(1).split(".")
+    if major != "1" or len(minor) != 2:
+        return False
+    before = question[max(0, match.start() - 1) : match.start()]
+    if before and (before.isdigit() or before in ".,$"):
+        return False
+    return not _UNIT_AFTER.match(question[match.end() :])
 
 
 @dataclass
@@ -68,7 +93,7 @@ def detect_versions(question: str) -> list[str]:
         has_cue = bool(_BARE_NUMBER_CONTEXT.search(prefix)) or match.group(0).lower().startswith(
             ("v", "k8s", "kubernetes", "release", "version")
         )
-        if has_cue and candidate not in found:
+        if (has_cue or _looks_like_bare_release(question, match)) and candidate not in found:
             found.append(candidate)
     return found
 
@@ -155,6 +180,29 @@ def _normalize(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
+def closest_counterparts(text: str, others: list[tuple[str, str]]) -> dict[str, tuple[float, str]]:
+    """For each other version, the most similar `(text, version)` row to `text`.
+
+    A long section is several chunks under one heading. Comparing a chunk to
+    *each* of them reported chunk 1 of 1.30 against chunk 2 of 1.26 as a
+    version conflict -- for any section long enough to split. Each version is
+    represented by its closest counterpart instead, so only a section with *no*
+    close counterpart in that version counts as changed.
+    """
+    latest = _normalize(text)
+    closest: dict[str, tuple[float, str]] = {}
+    if not latest:
+        return closest
+    for other_text, version in others:
+        other = _normalize(other_text)
+        if not other:
+            continue
+        similarity = difflib.SequenceMatcher(None, latest, other).ratio()
+        if version not in closest or similarity > closest[version][0]:
+            closest[version] = (similarity, other_text)
+    return closest
+
+
 def detect_conflicts(
     session: Session,
     candidates: list[Candidate],
@@ -196,21 +244,17 @@ def detect_conflicts(
             )
         ).all()
 
-        latest_norm = _normalize(candidate.text)
-        for row in rows:
-            other_norm = _normalize(row.text)
-            if not other_norm or not latest_norm:
-                continue
-            similarity = difflib.SequenceMatcher(None, latest_norm, other_norm).ratio()
+        closest = closest_counterparts(candidate.text, [(row.text, row.version) for row in rows])
+        for other_version, (similarity, other_text) in closest.items():
             if similarity < similarity_threshold:
                 conflicts.append(
                     VersionConflict(
                         source_path=candidate.source_path,
                         heading_path=candidate.heading_path,
                         latest_version=answer_version,
-                        other_version=row.version,
+                        other_version=other_version,
                         latest_text=candidate.text,
-                        other_text=row.text,
+                        other_text=other_text,
                         similarity=similarity,
                     )
                 )

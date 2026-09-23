@@ -32,6 +32,18 @@ CONFIGS_DIR = REPO_ROOT / "configs"
 
 ChunkerName = Literal["fixed", "structure_aware"]
 
+# Implementation revision of each chunking strategy. **Bump it whenever a code
+# change alters the chunks a strategy emits for the same input**, because the
+# revision is part of the chunk-set identity: without it, ingestion would find
+# the old rows under the old name, skip every "unchanged" document, and the
+# experiment would silently run on chunks the current code no longer produces.
+#
+# Revision 1 was unsuffixed and built chunk text with `tokenizer.decode`, which
+# lowercased it and spaced out its punctuation. Revision 2 slices the source
+# verbatim. See EXPERIMENTS.md, "The measurement audit".
+# structure_aware 3 drops pieces with no letter or digit (markup debris).
+CHUNKER_REVISIONS: dict[str, int] = {"fixed": 2, "structure_aware": 3}
+
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -45,6 +57,12 @@ class ChunkingConfig(_Frozen):
     # structure_aware only: prepend "Pods > Lifecycle > Probes" to the embedded
     # text so a chunk carries its position in the document, not just its words.
     prepend_heading_path: bool = True
+
+    @property
+    def label(self) -> str:
+        """Human-readable part of the chunk-set identity: `fixed-512-64-r2`."""
+        revision = CHUNKER_REVISIONS[self.chunker]
+        return f"{self.chunker}-{self.max_tokens}-{self.overlap_tokens}-r{revision}"
 
     @model_validator(mode="after")
     def _sizes_are_coherent(self) -> ChunkingConfig:
@@ -72,13 +90,38 @@ class EmbeddingConfig(_Frozen):
 class DenseConfig(_Frozen):
     enabled: bool = True
     k: int = Field(default=20, gt=0)
+    # HNSW candidate list size per query. pgvector applies the chunk-set and
+    # version filters *after* the index scan, so this must be large enough
+    # that k matching rows survive the filter. Too small and dense retrieval
+    # silently returns fewer than k (see `dense_search`, which also falls
+    # back to an exact scan). An experiment variable: it changes recall.
+    ef_search: int = Field(default=200, ge=1, le=1000)
 
 
 class LexicalConfig(_Frozen):
     enabled: bool = False
     k: int = Field(default=20, gt=0)
-    # Postgres FTS config name used for to_tsvector/to_tsquery.
-    text_search_config: str = "english"
+    # Postgres FTS config used for the *query*. Pinned to the one the `tsv`
+    # generated column is built with (migration 0002): a query stemmed as,
+    # say, `simple` against a document vector stemmed as `english` silently
+    # stops matching plurals and inflections. Supporting another language
+    # means a migration, not a config edit.
+    text_search_config: Literal["english"] = "english"
+    # How question terms combine. `all` is `websearch_to_tsquery`: every term
+    # must match, and a leading `-` means NOT -- right for a search box, wrong
+    # for a retrieval leg. A natural-language question rarely has every one of
+    # its words in one chunk (20 of the 32 golden questions matched nothing),
+    # and `kubectl get pods -n x` excluded every chunk mentioning `n`. `any`
+    # ORs the question's own lexemes and lets `ts_rank_cd` rank by overlap,
+    # which is what BM25-style retrieval does.
+    match: Literal["all", "any"] = "all"
+    # How matching chunks are ordered. `ts_rank_cd` has no IDF, so once any
+    # term may match, a chunk repeating a common word ("data", "default")
+    # outranks the one holding the rare, decisive term. `bm25` is Okapi BM25
+    # computed in SQL over the filtered chunk set (see `stages.py`).
+    ranking: Literal["ts_rank_cd", "bm25"] = "ts_rank_cd"
+    bm25_k1: float = Field(default=1.2, gt=0.0, le=3.0)
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)
 
 
 class FusionConfig(_Frozen):
@@ -122,6 +165,11 @@ class RetrievalConfig(_Frozen):
             raise ValueError("retrieval needs at least one of dense/lexical enabled")
         if self.fusion.enabled and not (self.dense.enabled and self.lexical.enabled):
             raise ValueError("fusion requires both dense and lexical to be enabled")
+        if self.dense.enabled and self.lexical.enabled and not self.fusion.enabled:
+            # Without fusion the two lists would be merged by raw score, and a
+            # cosine similarity (0-1) against a ts_rank_cd (unbounded) is not
+            # a comparison -- whichever scale is larger would win every time.
+            raise ValueError("dense + lexical needs fusion: their scores are not comparable")
         return self
 
 
@@ -169,14 +217,29 @@ class PipelineConfig(_Frozen):
 
     @property
     def chunker_name(self) -> str:
-        """Identity of a chunk set in the DB: strategy + its parameters.
+        """Identity of a chunk set in the DB, e.g. `structure_aware-512-64-r2-1a2b3c4d`.
 
         Several chunkings coexist in `chunks` so experiments can compare them
-        without re-ingesting, which means the key has to include the settings,
-        not just the strategy name.
+        without re-ingesting, which means the key has to cover *everything*
+        that determines a chunk's text or its vector -- not just the strategy
+        and size. Two configs differing only in `min_tokens`, in whether the
+        heading path is embedded, or in the embedding model must not share
+        rows: ingestion would see existing chunks, skip the documents, and the
+        second experiment would quietly measure the first one's index.
+
+        The readable label keeps the name greppable; the digest covers the rest.
         """
-        c = self.chunking
-        return f"{c.chunker}-{c.max_tokens}-{c.overlap_tokens}"
+        identity = {
+            "chunking": self.chunking.model_dump(mode="json"),
+            "revision": CHUNKER_REVISIONS[self.chunking.chunker],
+            "embedding_model": self.embedding.model,
+            "embedding_dimension": self.embedding.dimension,
+            "document_prefix": self.embedding.document_prefix,
+            "normalize": self.embedding.normalize,
+        }
+        blob = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(blob.encode()).hexdigest()[:8]
+        return f"{self.chunking.label}-{digest}"
 
     def to_record(self) -> dict[str, Any]:
         """Serialized form embedded in every experiment result file."""

@@ -40,7 +40,10 @@ class Embedder:
 
             log.info("embed.loading_model", model=self.config.model)
             self._model = SentenceTransformer(self.config.model, device="cpu")
-            actual = self._model.get_sentence_embedding_dimension()
+            # Renamed in sentence-transformers 5; keep working on either side.
+            model = self._model
+            dimension_of = getattr(model, "get_embedding_dimension", None)
+            actual = dimension_of() if dimension_of else model.get_sentence_embedding_dimension()
             if actual != self.config.dimension:
                 raise ValueError(
                     f"Config says dimension={self.config.dimension} but "

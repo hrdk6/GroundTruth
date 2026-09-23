@@ -1,157 +1,178 @@
 # GroundTruth
 
-A self-evaluating, version-aware RAG platform over the Kubernetes documentation.
+A self-evaluating, version-aware RAG platform over the Kubernetes documentation —
+built so that every claim it makes about itself can be checked.
 
-> ### Status: end to end, measured, $0.00
+> ### Status: measured end to end, audited, $0.00
 >
-> Nine experiments have run against a live database — retrieval *and*
-> generation. The table below is generated from them, never typed.
-> [EXPERIMENTS.md](EXPERIMENTS.md) has the analysis, including a reranker that
-> made things worse and was reverted, and a bug the harness found **in itself**
-> that was inflating abstentions.
+> Every number below is generated from a committed record in `experiments/`,
+> each recorded from a clean tree with its config hash, git SHA, gold-integrity
+> audit and 95% intervals.
 >
-> Runs on free infrastructure: PostgreSQL + pgvector with no Docker
-> (`make db-local`), and an OpenAI-compatible free-tier model. Total spend on
-> every number in this repo: **$0.00**.
+> **The most important result is a correction.** The first version of this
+> project reported that structure-aware chunking lifted recall@5 from 0.286 to
+> 0.786. An audit found the baseline's chunker was storing lowercased,
+> space-mangled text, so most gold quotes could not match any baseline chunk.
+> Corrected, the dense baseline scores **0.857** on dev — and on this golden set
+> no retrieval change (chunking, hybrid search, BM25, reranking) is
+> distinguishable from noise. [EXPERIMENTS.md](EXPERIMENTS.md) walks through the
+> thirteen measurement defects the audit found and what each did to the numbers.
 >
-> **Read the caveats before the numbers.** The golden set is 32 items, so one
-> item is worth ~5 points of recall. The corpus is a 639-page subset. And the
-> LLM judge is the *same model* that wrote the answers, so `correctness` is
-> self-assessed until [judge validation](#judge-validation) is done — that is
-> the biggest outstanding gap, and it is stated rather than buried.
+> Read the caveats before the numbers: 32 golden items (14 dev / 10 test with
+> gold evidence), a 639-page corpus subset, and an LLM judge that is the same
+> model as the answerer, so `correctness` is self-assessed.
 
 ## The problem
 
 RAG systems work in the demo and degrade quietly in production. GroundTruth
-targets five specific failures, and is built to *prove* it fixes each one.
+targets five specific failures, and is built to *measure* whether it fixes each.
 
 | Failure | How this repo addresses it |
 |---|---|
-| **Unmeasured quality** — changes ship with no evidence | The eval harness was built before any retrieval work. Every improvement is a recorded experiment with a config hash, git SHA, and before/after numbers |
-| **Stale and conflicting knowledge** | Three release branches indexed side by side; version detection, version-filtered retrieval as a SQL pre-filter, and explicit conflict notes beside the answer |
-| **Retrieval misses** on exact terms, tables, code | Hybrid dense + lexical fused with RRF, cross-encoder reranking, and chunking that never splits a fenced block or a table |
+| **Unmeasured quality** — changes ship with no evidence | An eval harness built before any retrieval work. Every run is a record with a config hash, git SHA, bootstrap intervals, and a gold-integrity audit; comparisons are paired item by item |
+| **Stale and conflicting knowledge** | Release branches indexed side by side; version detection; version filtering in SQL; conflict notes shown beside the answer, never blended into it |
+| **Retrieval misses** on exact terms, tables, code | Dense + lexical fused with RRF, where the lexical leg is **BM25 computed in plain Postgres**; chunking that never splits a fenced block or a table |
 | **Hallucinated citations** | Per-sentence claim verification against the cited excerpt, with a regenerate-once-then-abstain policy |
-| **Undiagnosable failures** | A span per stage, plus six-way failure attribution that separates a retrieval miss from a ranking miss from a generation failure |
+| **Undiagnosable failures** | A span per stage (including failed queries), a rank trail per chunk, and six-way failure attribution that separates a retrieval miss from a ranking miss from a generation failure |
+
+## What an audit of the evaluation found
+
+The harness exists to catch wrong numbers, so it was turned on itself. Thirteen
+measurement defects, each fixed, regression-tested and re-measured — the ones
+that moved published numbers:
+
+- **Chunk text was `tokenizer.decode(ids)`**, which lowercases and spaces out
+  punctuation. Only 8 of 26 gold quotes could match any baseline chunk.
+- **Recall@10 was computed over the five-chunk context**, so it always equalled
+  recall@5.
+- **pgvector 0.6.2 filters after the HNSW scan**, so dense retrieval silently
+  returned fewer than `k` chunks.
+- **The lexical leg required every question term** and read `-o` as NOT; it
+  matched nothing for 20 of 32 golden questions.
+- **The runner told the pipeline which version to answer from**, making
+  "version correctness 1.000" a tautology.
+
+And one that was not about measurement at all: **`.gitignore` had a bare
+`models/` that matched `backend/app/models/`**, so the ORM package had never
+been committed and no clone of the repo could run. A fresh clone now installs,
+passes all 256 tests and builds the frontend.
+
+Each is now guarded: every run audits whether its gold is matchable
+(`integrity.recall_ceiling`) and the CI gate fails if it is not.
 
 ## Quick start
 
-Requires Docker and [uv](https://docs.astral.sh/uv/).
+Requires [uv](https://docs.astral.sh/uv/) and Node 22. No Docker needed.
 
 ```bash
-cp .env.example .env     # ANTHROPIC_API_KEY is optional: retrieval evals don't need one
+cp .env.example .env        # an LLM key is optional: retrieval evals need none
 make install
-make up                  # Postgres + API, migrations applied
-make ingest              # ~3,100 pages across 1.26 / 1.28 / 1.30 (slow: CPU embedding)
-make eval CONFIG=configs/baseline.yaml SPLIT=dev MODE=retrieval
+make db-local               # real Postgres 16 + pgvector as a user process
+make migrate
+make ingest                 # CPU embedding; see below for a faster subset
+make eval CONFIG=configs/hybrid_bm25.yaml SPLIT=dev MODE=retrieval
+make dev                    # API on :8000
 ```
 
-Then `cd frontend && npm install && npm run dev` for the UI on
-`localhost:3000`.
+Then `cd frontend && npm install && npm run dev` for the UI on `localhost:3000`.
 
-On Windows, GNU make is not installed by default — `./make.ps1 <target>`
-mirrors every target. Run `make help` for the full list.
+On Windows, `./make.ps1 <target>` mirrors every target. With Docker available,
+`make up` starts Postgres and the API in containers instead.
+
+Ingestion is CPU-bound on embedding. The evaluated subset takes ~12 minutes for
+both chunkers:
+
+```bash
+cd backend
+uv run python -m app.ingestion.run --config ../configs/hybrid_bm25.yaml \
+    --versions 1.26 1.30 --include concepts tasks
+```
 
 | Command | What it does |
 |---|---|
 | `make check` | Lint, type-check, and test — everything CI runs |
-| `make dev` | Run the API natively, without containers |
-| `make ingest` | Fetch, parse, chunk, embed; skips unchanged documents |
-| `make eval` | Run an evaluation and write an experiment file |
+| `make eval` | Run an evaluation and write an experiment record |
+| `make compare A=<id> B=<id>` | Paired comparison of two runs, with intervals and p-values |
 | `make results` | Regenerate the results table below from `experiments/` |
-
-### No Docker? Two ways round it
-
-Docker needs hardware virtualization, which not every machine has enabled.
-
-**Postgres without Docker.** `pgserver` ships a real PostgreSQL 16 with pgvector
-as a wheel, running as an ordinary user process:
-
-```bash
-make db-local            # starts it and writes DATABASE_URL to .env
-make migrate && make ingest
-```
-
-This is how every result in this README was produced.
-
-**Or managed Postgres** — any Postgres 16 with pgvector works:
-
-```bash
-echo 'DATABASE_URL=postgresql+psycopg://user:pass@host/db' >> .env
-make migrate && make ingest
-```
-
-Ingestion is CPU-bound on embedding. `--include concepts tasks` scopes it to a
-subset when a full run is too slow:
-
-```bash
-cd backend && uv run python -m app.ingestion.run   --config ../configs/hybrid.yaml --versions 1.26 1.30 --include concepts tasks
-```
+| `make llm-check` | Verify the configured model before a long generation run |
 
 ## How it works
 
 ```
-fetch → parse → chunk → embed → Postgres (pgvector + tsvector)
+fetch → parse → chunk → embed → Postgres (pgvector HNSW + tsvector GIN)
                                        ↓
 question → version detect → [rewrite] → [decompose]
                                        ↓
                         dense ─┐
-                               ├─ RRF → rerank → grounded answer
-                      lexical ─┘                      ↓
-                                            claim verification
-                                                      ↓
-                                     return · regenerate once · abstain
+                               ├─ RRF → [rerank] → grounded answer
+                   BM25 (SQL) ─┘                         ↓
+                                              claim verification
+                                                         ↓
+                                        return · regenerate once · abstain
 ```
 
-Every stage is a config toggle, so an experiment is one line of YAML rather
-than a code change. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
-diagrams and the ten recorded decisions, each with its trade-off.
+Every stage is a config toggle, so an experiment is one line of YAML rather than
+a code change. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the diagrams and
+eighteen recorded decisions, each with its trade-off.
 
-Three ideas do most of the work:
+Four ideas do most of the work:
 
-- **Gold evidence is documentation coordinates, not chunk ids.** An item records
-  `(source_path, heading_path, version, key_quote)`, so labels survive the
-  re-chunking that Phase 3 performs deliberately. An id-keyed dataset would
-  silently start measuring nothing.
-- **Failure attribution is one label per item, in a fixed order.** The
-  distribution's job is to answer "where should the next hour go", so
-  double-counting would make it lie.
-- **An uncited factual sentence counts as unsupported.** Without that rule, the
-  cheapest way to raise the support fraction would be to stop citing.
+- **Gold evidence is documentation coordinates, not chunk ids** —
+  `(source_path, heading_path, version, key_quote)` — so labels survive
+  re-chunking. And because a quote that no chunk can contain is a guaranteed
+  miss, **every run audits its gold at the chunk level before scoring.**
+- **Chunk-set identity covers everything that shapes a vector**, including the
+  chunker's implementation revision, so an experiment can never measure an
+  index its config did not build.
+- **Uncertainty is reported, not described.** Every metric carries a bootstrap
+  interval; `make compare` pairs two runs item by item and says whether a
+  difference is distinguishable from noise.
+- **An uncited factual sentence counts as unsupported.** Otherwise the cheapest
+  way to raise the support fraction would be to stop citing.
 
 ## Results
 
 <!-- RESULTS_TABLE_START -->
-| Config | Dataset | Split | Recall@5 | Recall@10 | MRR | nDCG@10 | Correctness | Faithfulness | Citation prec. | Cost | Commit |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| `hybrid` | `fixture_golden` | dev | 0.833 | 0.833 | 0.833 | 0.833 | — | — | — | $0.00 | `0f08127` |
-| `full` | `golden_v1` | test | 0.800 | 0.900 | 0.675 | 0.736 | 0.923 | 1.000 | 1.000 | $0.00 | `0f08127` |
-| `hybrid_rerank` | `golden_v1` | test | 0.800 | 0.800 | 0.583 | 0.639 | — | — | — | $0.00 | `0f08127` |
-| `hybrid_rerank` | `golden_v1` | dev | 0.714 | 0.714 | 0.530 | 0.692 | — | — | — | $0.00 | `0f08127` |
-| `hybrid` | `golden_v1` | test | 0.700 | 0.700 | 0.517 | 0.563 | — | — | — | $0.00 | `0f08127` |
-| `hybrid` | `golden_v1` | dev | 0.786 | 0.786 | 0.583 | 0.774 | — | — | — | $0.00 | `0f08127` |
-| `structure_aware` | `golden_v1` | test | 0.700 | 0.700 | 0.417 | 0.489 | — | — | — | $0.00 | `0f08127` |
-| `structure_aware` | `golden_v1` | dev | 0.786 | 0.786 | 0.500 | 0.712 | — | — | — | $0.00 | `0f08127` |
-| `baseline` | `golden_v1` | test | 0.100 | 0.100 | 0.100 | 0.100 | — | — | — | $0.00 | `0f08127` |
-| `baseline` | `golden_v1` | dev | 0.286 | 0.286 | 0.274 | 0.308 | — | — | — | $0.00 | `0f08127` |
+| Config | Dataset | Split | n | Recall@5 (95% CI) | Recall@10 | MRR@10 | nDCG@10 | Correctness (95% CI) | Faithfulness | Citation prec. | p50 | Cost | Commit |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `baseline` | `golden_v1` | dev | 14 | 0.857 [0.64, 1.00] | 0.857 | 0.538 | 0.713 | — | — | — | 20ms | $0.00 | `1d5e6dc` |
+| `baseline` | `golden_v1` | test | 10 | 0.700 [0.40, 1.00] | 0.900 | 0.603 | 0.671 | — | — | — | 21ms | $0.00 | `1d5e6dc` |
+| `structure_aware` | `golden_v1` | dev | 14 | 0.786 [0.57, 1.00] | 0.786 | 0.500 | 0.781 | — | — | — | 20ms | $0.00 | `1d5e6dc` |
+| `structure_aware` | `golden_v1` | test | 10 | 0.700 [0.40, 1.00] | 0.700 | 0.467 | 0.526 | — | — | — | 20ms | $0.00 | `1d5e6dc` |
+| `hybrid_all_terms` | `golden_v1` | dev | 14 | 0.786 [0.57, 1.00] | 0.786 | 0.583 | 0.842 | — | — | — | 24ms | $0.00 | `1d5e6dc` |
+| `hybrid_all_terms` | `golden_v1` | test | 10 | 0.700 [0.40, 1.00] | 0.700 | 0.517 | 0.563 | — | — | — | 25ms | $0.00 | `1d5e6dc` |
+| `hybrid` | `golden_v1` | dev | 14 | 0.714 [0.50, 0.93] | 0.786 | 0.558 | 0.724 | — | — | — | 71ms | $0.00 | `1d5e6dc` |
+| `hybrid` | `golden_v1` | test | 10 | 0.600 [0.30, 0.90] | 0.700 | 0.502 | 0.559 | — | — | — | 85ms | $0.00 | `1d5e6dc` |
+| `hybrid_bm25` | `golden_v1` | dev | 14 | 0.714 [0.50, 0.93] | 0.786 | 0.572 | 0.850 | — | — | — | 112ms | $0.00 | `1d5e6dc` |
+| `hybrid_bm25` | `golden_v1` | test | 10 | 0.700 [0.40, 1.00] | 0.700 | 0.496 | 0.559 | — | — | — | 111ms | $0.00 | `1d5e6dc` |
+| `hybrid_rerank` | `golden_v1` | dev | 14 | 0.714 [0.50, 0.93] | 0.786 | 0.537 | 0.759 | — | — | — | 7,806ms | $0.00 | `1d5e6dc` |
+| `hybrid_rerank` | `golden_v1` | test | 10 | 0.700 [0.40, 1.00] | 0.900 | 0.592 | 0.676 | — | — | — | 9,621ms | $0.00 | `1d5e6dc` |
+| `full` | `golden_v1` | dev | 14 | 0.786 [0.57, 1.00] | 0.857 | 0.630 | 0.808 | 0.842 [0.68, 1.00] | 0.974 | 1.000 | 261ms† | $0.00 | `9e1fcb1` |
+| `full` | `golden_v1` | test | 10 | 0.800 [0.50, 1.00] | 0.900 | 0.625 | 0.701 | 0.923 [0.77, 1.00] | 0.942 | 0.900 | 299ms† | $0.00 | `9e1fcb1` |
+| `hybrid` | `fixture_golden` | all | 6 | 0.667 [0.33, 1.00] | 1.000 | 0.621 | 0.706 | — | — | — | 50ms | $0.00 | `1d5e6dc` |
+| `hybrid_bm25` | `fixture_golden` | all | 6 | 1.000 [1.00, 1.00] | 1.000 | 0.833 | 0.877 | — | — | — | 37ms | $0.00 | `983a107` |
 
-_Generated by `scripts/generate_results_table.py` from 10 run(s) in `experiments/`. Do not edit by hand._
+_Generated by `scripts/generate_results_table.py`: the newest run in each of 16 (config, dataset, split, mode) groups in `experiments/`. Do not edit by hand._
+_`n` counts items with gold evidence (retrieval metrics); intervals are a 95% percentile bootstrap over items. Recall@k, MRR@10 and nDCG@10 are over the full ranked list; see `context_recall` in each file for the top-`k_final` cut._
+_† mostly served from the LLM cache, so this p50 is not a cold-query latency; see EXPERIMENTS.md._
 <!-- RESULTS_TABLE_END -->
 
-The table above is written by `scripts/generate_results_table.py` from the files
-in `experiments/`, and CI fails if it is edited by hand. The queued experiments
-and their hypotheses are listed in [EXPERIMENTS.md](EXPERIMENTS.md).
+Read the table through its intervals. On this golden set the dense baseline
+over fixed windows is as good as anything, and `make compare` on any pair of
+retrieval configs reports *within noise*. The one distinguishable difference in
+the repo is the audit's correction itself: the pre-audit baseline against the
+corrected one, recall@5 **+0.571** on dev (95% CI [+0.29, +0.86], p = 0.008,
+8 items better, 0 worse). `full` correctness is self-judged — see below.
+[EXPERIMENTS.md](EXPERIMENTS.md) has every paired comparison and per-category
+table, all generated from the records by `scripts/experiment_tables.py`.
 
 ## Judge validation
 
-**Not done — and this is the most important caveat in the repo.**
+**Not done — the most important remaining caveat.** `answer_correctness` is
+`nvidia/nemotron-3-super-120b-a12b` grading answers written by the same model.
+Self-evaluation inflates, and nothing yet says by how much.
 
-`answer_correctness` above was produced by `nvidia/nemotron-3-super-120b-a12b`
-grading answers written by `nvidia/nemotron-3-super-120b-a12b`. That is
-self-evaluation, and it inflates. The free tier served exactly three models
-fast enough to be usable (55 of 58 timed out or were not served), so a separate
-judge was not available here.
-
-The machinery is built and tested; it needs ~50 human labels:
+The machinery is built and tested:
 
 ```bash
 cd backend
@@ -159,47 +180,39 @@ uv run python -m evals.judge.label --count 50   # judge verdicts hidden, to avoi
 uv run python -m evals.judge.label --report     # accuracy + Cohen's kappa
 ```
 
-Agreement is reported as accuracy *and* kappa, because accuracy alone lies: on
-a set that is 85% correct, a judge that always says "pass" scores 85% while
-carrying no information at all. Below a kappa of about 0.6 the honest move is
-to fix the judge prompt, not to publish what it produced.
-
-The cheapest real fix is to point `GT_CHEAP_MODEL` at a *different* model from
-`GT_GENERATION_MODEL`, so the judge is not marking its own homework.
-
-## Failure attribution
-
-Every failed item is classified as `retrieval_miss`, `ranking_miss`,
-`generation_failure`, `false_answer`, `false_abstention`, or `version_error`,
-and the distribution is reported per experiment and charted on the Experiments
-page. That distribution is what decides which experiment is worth running next.
+The labeler shows the reference answer and the cited excerpts, ties each label
+to the exact answer it judged (so a re-run cannot silently reuse stale labels),
+and leaves rule-decided abstentions out of kappa. Agreement is reported as
+accuracy *and* kappa, because on a set that is 85% correct a judge that always
+says "pass" scores 85% accuracy while carrying no information.
 
 ## Limitations
 
-Tracked honestly in [docs/LIMITATIONS.md](docs/LIMITATIONS.md) — including the
-self-evaluating judge, the 32-item golden set and 639-page corpus that bound
-every number above, `multi_hop` scoring 0.000 in every run, and the lexical leg
-being BM25-*like* rather than BM25.
+Tracked in [docs/LIMITATIONS.md](docs/LIMITATIONS.md) — including the
+self-evaluating judge, the small golden set, the corpus subset, pgvector 0.6.2's
+post-filtering HNSW scans, and conflict detection being a lexical heuristic.
 
 ## Testing and CI
 
-123 unit tests and 12 integration tests. The integration tests run against
-their own `_test` database — they truncate tables, so they must never touch a
-corpus you have just spent ten minutes ingesting. They skip when no database is
-reachable, and run in CI against a `pgvector/pgvector:pg16` service container.
-CI lints,
-type-checks, tests, ingests the committed fixture corpus, runs a retrieval
-evaluation on the fixture golden set, and checks it against
-`evals/thresholds.yaml`. Generation evals are a separate manual workflow,
-because they cost money.
+231 unit tests and 25 integration tests, including a from-scratch Python BM25
+that the SQL implementation must match to 1e-9, and an end-to-end run of the
+evaluation runner over the fixture index. Integration tests run against their own `_test` database — they
+truncate tables, so they never touch a corpus you ingested. They skip when no
+database is reachable and run in CI against a `pgvector/pgvector:pg16` service.
+
+CI lints, type-checks, tests, ingests the committed fixture corpus, evaluates
+the shipping retrieval config on the fixture golden set, and fails if any
+tracked metric — or the gold-integrity ceiling — drops below
+`evals/thresholds.yaml`. It also fails if this README's results table was
+edited by hand. Generation evals are a separate manual workflow.
 
 ## Project layout
 
 ```
 backend/app/        core, ingestion, retrieval, generation, tracing, api
-backend/evals/      dataset, metrics, judge, attribution, runner, gate
+backend/evals/      dataset, metrics (+ stats), judge, attribution, integrity, runner, gate, compare
 configs/            the only place a pipeline choice lives
-experiments/        one JSON per run (committed)
+experiments/        one JSON per run (committed); superseded/ holds pre-audit runs
 data/golden/        curated golden sets (committed); data/raw is not
 frontend/           Next.js: ask, trace viewer, experiments dashboard
 docs/               architecture, limitations, demo script

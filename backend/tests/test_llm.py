@@ -258,3 +258,55 @@ def test_missing_key_raises_only_when_a_call_is_made(llm_client: LLMClient) -> N
     """Retrieval-only evals build the client and never call it; CI has no key."""
     with pytest.raises(MissingAPIKeyError):
         llm_client.complete("q")
+
+
+# --- per-request accounting -----------------------------------------------
+def test_a_child_tracker_rolls_up_into_its_parent(llm_client: LLMClient) -> None:
+    """A request reads its own cost; the process total still sees every call."""
+    llm_client._client = FakeProvider(input_tokens=100, output_tokens=50)
+    request = llm_client.child()
+
+    request.complete("q1", model="claude-sonnet-5")
+    llm_client.complete("q2", model="claude-sonnet-5")  # someone else's call
+
+    assert request.tracker.calls == 1
+    assert llm_client.tracker.calls == 2
+    assert request.tracker.cost_usd < llm_client.tracker.cost_usd
+
+
+def test_concurrent_requests_are_billed_separately(llm_client: LLMClient) -> None:
+    """Regression: cost was a delta off one shared tracker, so concurrent
+    API requests were each billed for their neighbours' calls."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    llm_client._client = FakeProvider(input_tokens=1000, output_tokens=0)
+    children = [llm_client.child() for _ in range(8)]
+
+    def work(index: int) -> None:
+        for call in range(index + 1):  # request i makes i+1 calls
+            children[index].complete(f"q{index}-{call}", model="claude-sonnet-5")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(work, range(8)))
+
+    assert [c.tracker.calls for c in children] == list(range(1, 9))
+    assert llm_client.tracker.calls == sum(range(1, 9))
+
+
+def test_views_share_the_cache_and_provider(llm_client: LLMClient) -> None:
+    fake = FakeProvider()
+    llm_client._client = fake
+    llm_client.child().complete("q", model="m")
+    llm_client.child().complete("q", model="m")
+    assert len(fake.calls) == 1, "the second view must hit the cache the first one filled"
+
+
+def test_an_empty_completion_is_returned_but_never_cached(llm_client: LLMClient) -> None:
+    """A reasoning model that spends its budget thinking returns nothing.
+    Caching that would replay the failure on every future run."""
+    fake = FakeProvider(text="")
+    llm_client._client = fake
+
+    assert llm_client.complete("q", model="m").text == ""
+    llm_client.complete("q", model="m")
+    assert len(fake.calls) == 2

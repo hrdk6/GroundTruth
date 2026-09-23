@@ -12,7 +12,16 @@
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ApiError, api, type Span, type TraceDetail } from "@/lib/api";
-import { ErrorNote, Field, Spinner, formatCost, formatMs, formatTime } from "@/components/primitives";
+import { AnswerText } from "@/components/answer-text";
+import {
+  ErrorNote,
+  Field,
+  Spinner,
+  cleanHeading,
+  formatCost,
+  formatMs,
+  formatTime,
+} from "@/components/primitives";
 
 interface ChunkRow {
   chunk_id: number;
@@ -25,6 +34,34 @@ interface ChunkRow {
 
 /** Stage order as the pipeline runs it, for reading a rank trail left to right. */
 const STAGE_ORDER = ["dense", "lexical", "rrf", "fusion", "rerank"];
+
+interface Timeline {
+  /** Milliseconds from the first span's start to the last span's end. */
+  totalMs: number;
+  /** Span id -> [offset, width] as percentages of `totalMs`. */
+  bars: Record<string, [number, number]>;
+}
+
+/**
+ * Place each span on one shared time axis.
+ *
+ * Sizing bars by duration alone draws a bar chart, not a waterfall: it hides
+ * *when* a stage ran, so sequential stages and overlapping ones look the same,
+ * and the gaps between stages -- time spent outside any span -- vanish.
+ */
+function timeline(spans: Span[]): Timeline {
+  const starts = spans.map((s) => Date.parse(s.started_at));
+  const origin = Math.min(...starts);
+  const ends = spans.map((s, i) => starts[i] + s.duration_ms);
+  const totalMs = Math.max(1, Math.max(...ends) - origin);
+  const bars: Record<string, [number, number]> = {};
+  spans.forEach((span, i) => {
+    const offset = ((starts[i] - origin) / totalMs) * 100;
+    const width = Math.max(0.8, (span.duration_ms / totalMs) * 100);
+    bars[span.span_id] = [Math.min(offset, 100 - width), width];
+  });
+  return { totalMs, bars };
+}
 
 function collectChunks(spans: Span[]): ChunkRow[] {
   const byId = new Map<number, ChunkRow>();
@@ -77,8 +114,8 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
       );
   }, [id]);
 
-  const totalMs = useMemo(
-    () => (trace ? Math.max(1, ...trace.spans.map((s) => s.duration_ms)) : 1),
+  const axis = useMemo(
+    () => (trace && trace.spans.length ? timeline(trace.spans) : { totalMs: 1, bars: {} }),
     [trace],
   );
   const chunks = useMemo(() => (trace ? collectChunks(trace.spans) : []), [trace]);
@@ -110,6 +147,16 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
 
       <h1 className="mt-3 text-lg text-bright font-medium">{trace.question}</h1>
 
+      {trace.status !== "ok" && (
+        <div className="mt-4">
+          <ErrorNote
+            message={`This query failed: ${String(trace.meta?.error ?? "error")}${
+              trace.meta?.message ? ` — ${String(trace.meta.message)}` : ""
+            }. The stage that raised is marked below.`}
+          />
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3 rule pt-4">
         <Field label="Pipeline">{trace.config_name}</Field>
         <Field label="Answered from">
@@ -124,10 +171,15 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
       <div className="mt-8 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,460px)] gap-8">
         {/* ---------------- Waterfall ---------------- */}
         <section>
-          <h2 className="text-sm text-mute mb-3">Stages</h2>
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-sm text-mute">Stages</h2>
+            <span className="mono text-[11px] text-dim tnum">
+              0 — {formatMs(axis.totalMs)}
+            </span>
+          </div>
           <div className="border border-line rounded-sm divide-y divide-line">
             {trace.spans.map((span) => {
-              const width = Math.max(1.5, (span.duration_ms / totalMs) * 100);
+              const [offset, width] = axis.bars[span.span_id] ?? [0, 1];
               const isOpen = openSpan === span.span_id;
               const failed = span.status !== "ok";
               const count = Number(span.output?.count ?? NaN);
@@ -139,19 +191,24 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                     aria-expanded={isOpen}
                     className="w-full text-left px-3 py-2 hover:bg-panel/60 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
+                    {/* Below sm the bar takes a line of its own: beside four
+                        fixed columns it was squeezed to nothing. */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5">
                       <span
-                        className="mono text-xs w-[9.5rem] shrink-0"
+                        className="mono text-xs flex-1 sm:flex-none sm:w-[9.5rem] shrink-0"
                         style={{ color: failed ? "var(--color-alarm)" : "var(--color-text)" }}
                       >
                         {span.name}
                       </span>
 
-                      <span className="flex-1 h-[10px] bg-line/50 rounded-[1px] relative overflow-hidden">
+                      <span className="order-last sm:order-none basis-full sm:basis-auto flex-1 h-[10px] bg-line/50 rounded-[1px] relative overflow-hidden">
                         <span
-                          className="absolute inset-y-0 left-0 rounded-[1px]"
+                          className="absolute inset-y-0 rounded-[1px]"
                           style={{
+                            left: `${offset}%`,
                             width: `${width}%`,
+                            // A 3ms span on a 40s axis is still a span.
+                            minWidth: 2,
                             backgroundColor: failed
                               ? "var(--color-alarm)"
                               : "var(--color-brass)",
@@ -197,7 +254,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                                     {String(entry.source_path ?? "")}
                                   </span>
                                   <span className="text-dim truncate max-w-[14rem]">
-                                    {String(entry.heading_path ?? "")}
+                                    {cleanHeading(String(entry.heading_path ?? ""))}
                                   </span>
                                 </li>
                               ))}
@@ -214,8 +271,15 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
           {trace.answer && (
             <>
               <h2 className="text-sm text-mute mt-8 mb-3">Answer</h2>
-              <div className="border border-line rounded-sm px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap">
-                {trace.answer}
+              <div className="border border-line rounded-sm px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap wrap-anywhere">
+                <AnswerText
+                  text={trace.answer}
+                  citation={(marker, key) => (
+                    <span key={key} className="mono text-[11px] align-super px-0.5 text-brass">
+                      {marker}
+                    </span>
+                  )}
+                />
               </div>
             </>
           )}
@@ -248,7 +312,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                     </div>
                     {chunk.heading_path && (
                       <div className="mono text-[10px] text-dim truncate">
-                        {chunk.heading_path}
+                        {cleanHeading(chunk.heading_path)}
                       </div>
                     )}
                     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">

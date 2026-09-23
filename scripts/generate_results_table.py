@@ -10,6 +10,18 @@ Usage:
 
 `--check` verifies the README is already up to date and exits non-zero if not,
 which is what CI runs to catch a hand-edited table.
+
+What the table shows, and why:
+
+* **One row per (config, dataset, split, mode)** -- the newest run. Older runs
+  stay in `experiments/` as history; a table of every run ever made buries the
+  current result under the ones it superseded.
+* **n and a 95% interval** on the headline metrics. On 19 items one item is
+  ~5 points; an interval says so without anyone having to remember it.
+* **A dirty-tree marker.** A run from uncommitted code is not reproducible
+  from its SHA, and the table says which ones those are.
+
+Standard library only: CI runs this with the system Python, before `uv sync`.
 """
 
 from __future__ import annotations
@@ -29,20 +41,32 @@ END_MARKER = "<!-- RESULTS_TABLE_END -->"
 
 EMPTY_MESSAGE = "No experiments recorded yet. Run `make eval` and then `make results`."
 
-# (json key in metrics, column header, format spec)
-COLUMNS: list[tuple[str, str, str]] = [
-    ("recall@5", "Recall@5", ".3f"),
-    ("recall@10", "Recall@10", ".3f"),
-    ("mrr", "MRR", ".3f"),
-    ("ndcg@10", "nDCG@10", ".3f"),
-    ("answer_correctness", "Correctness", ".3f"),
-    ("faithfulness", "Faithfulness", ".3f"),
-    ("citation_precision", "Citation prec.", ".3f"),
+# The order experiments were run in, so the table reads as a progression.
+CONFIG_ORDER = [
+    "baseline",
+    "structure_aware",
+    "hybrid_all_terms",
+    "hybrid",
+    "hybrid_bm25",
+    "hybrid_rerank",
+    "full",
+]
+SPLIT_ORDER = ["dev", "test", "all"]
+
+# (json key in metrics, column header, show a confidence interval)
+COLUMNS: list[tuple[str, str, bool]] = [
+    ("recall@5", "Recall@5 (95% CI)", True),
+    ("recall@10", "Recall@10", False),
+    ("mrr", "MRR@10", False),
+    ("ndcg@10", "nDCG@10", False),
+    ("answer_correctness", "Correctness (95% CI)", True),
+    ("faithfulness", "Faithfulness", False),
+    ("citation_precision", "Citation prec.", False),
 ]
 
 
 def load_experiments(split: str | None = None) -> list[dict[str, Any]]:
-    """Load every experiment file, newest first, optionally filtered by split."""
+    """Every experiment file, optionally filtered by split."""
     runs: list[dict[str, Any]] = []
     for path in sorted(EXPERIMENTS_DIR.glob("*.json")):
         try:
@@ -54,59 +78,129 @@ def load_experiments(split: str | None = None) -> list[dict[str, Any]]:
             continue
         data["_file"] = path.name
         runs.append(data)
-    runs.sort(key=lambda r: str(r.get("timestamp", r["_file"])), reverse=True)
     return runs
 
 
-def format_value(metrics: dict[str, Any], key: str, spec: str) -> str:
-    value = metrics.get(key)
+def latest_per_group(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The newest run for each (config, dataset, split, mode), in reading order."""
+    newest: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for run in runs:
+        key = (
+            str(run.get("config", {}).get("name", "?")),
+            str(run.get("dataset_version", "?")),
+            str(run.get("split", "?")),
+            str(run.get("mode", "?")),
+        )
+        stamp = str(run.get("timestamp", run["_file"]))
+        if key not in newest or stamp > str(newest[key].get("timestamp", newest[key]["_file"])):
+            newest[key] = run
+
+    def order(run: dict[str, Any]) -> tuple[int, str, int, int, str]:
+        config = str(run.get("config", {}).get("name", "?"))
+        split = str(run.get("split", "?"))
+        return (
+            # Fixture runs are CI's gate, not a result; they go last.
+            1 if run.get("dataset_version") == "fixture_golden" else 0,
+            str(run.get("dataset_version", "")),
+            CONFIG_ORDER.index(config) if config in CONFIG_ORDER else len(CONFIG_ORDER),
+            SPLIT_ORDER.index(split) if split in SPLIT_ORDER else len(SPLIT_ORDER),
+            config,
+        )
+
+    return sorted(newest.values(), key=order)
+
+
+def format_value(run: dict[str, Any], key: str, with_ci: bool) -> str:
+    value = run.get("metrics", {}).get(key)
     if value is None:
         return "—"
     try:
-        return format(float(value), spec)
+        text = f"{float(value):.3f}"
     except (TypeError, ValueError):
         return str(value)
+    interval = (run.get("confidence") or {}).get(key)
+    if with_ci and interval:
+        text += f" [{interval['low']:.2f}, {interval['high']:.2f}]"
+    return text
 
 
 def build_table(runs: list[dict[str, Any]]) -> str:
     if not runs:
         return EMPTY_MESSAGE
 
-    # Only show columns that at least one run actually reports, so a
-    # retrieval-only table isn't padded with empty generation columns.
-    present = [
-        (key, header, spec)
-        for key, header, spec in COLUMNS
-        if any(key in run.get("metrics", {}) for run in runs)
-    ]
+    # Only columns at least one run reports, so a retrieval-only table isn't
+    # padded with empty generation columns.
+    present = [c for c in COLUMNS if any(c[0] in run.get("metrics", {}) for run in runs)]
 
     # The dataset column is not decoration: a fixture run and a golden-set
     # run produce different numbers, and a table that hides which is which
     # invites comparing them.
-    headers = ["Config", "Dataset", "Split", *(h for _, h, _ in present), "Cost", "Commit"]
+    headers = [
+        "Config",
+        "Dataset",
+        "Split",
+        "n",
+        *(header for _, header, _ in present),
+        "p50",
+        "Cost",
+        "Commit",
+    ]
     lines = [
         "| " + " | ".join(headers) + " |",
         "|" + "|".join(["---"] * len(headers)) + "|",
     ]
 
+    any_dirty = False
+    any_cached = False
     for run in runs:
-        metrics = run.get("metrics", {})
         cost = run.get("cost", {}).get("cost_usd")
+        p50 = run.get("latency", {}).get("p50_ms")
+        n = run.get("metrics", {}).get("count")
+        sha = str(run.get("git_sha") or "")[:7] or "—"
+        # A run that mostly replayed the LLM cache measured the cache, not the
+        # model: its latency is not what a user would wait.
+        cached = run.get("cost", {}).get("calls", 0) and (
+            run.get("cost", {}).get("cache_hit_rate", 0) >= 0.5
+        )
+        latency = f"{float(p50):,.0f}ms" if p50 is not None else "—"
+        if cached:
+            latency += "†"
+            any_cached = True
+        if run.get("git_dirty"):
+            sha += "*"
+            any_dirty = True
         row = [
             f"`{run.get('config', {}).get('name', '?')}`",
             f"`{run.get('dataset_version', '?')}`",
             str(run.get("split", "?")),
-            *(format_value(metrics, key, spec) for key, _, spec in present),
+            str(n) if n is not None else "—",
+            *(format_value(run, key, with_ci) for key, _, with_ci in present),
+            latency,
             f"${float(cost):.2f}" if cost is not None else "—",
-            f"`{str(run.get('git_sha', ''))[:7] or '—'}`",
+            f"`{sha}`",
         ]
         lines.append("| " + " | ".join(row) + " |")
 
     lines.append("")
-    lines.append(
-        f"_Generated by `scripts/generate_results_table.py` from {len(runs)} "
-        f"run(s) in `experiments/`. Do not edit by hand._"
-    )
+    notes = [
+        f"_Generated by `scripts/generate_results_table.py`: the newest run in each of "
+        f"{len(runs)} (config, dataset, split, mode) groups in `experiments/`. "
+        f"Do not edit by hand._",
+        "_`n` counts items with gold evidence (retrieval metrics); intervals are a "
+        "95% percentile bootstrap over items. Recall@k, MRR@10 and nDCG@10 are over "
+        "the full ranked list; see `context_recall` in each file for the top-`k_final` cut._",
+    ]
+    if any_cached:
+        notes.append(
+            "_† mostly served from the LLM cache, so this p50 is not a cold-query "
+            "latency; see EXPERIMENTS.md._"
+        )
+    if any_dirty:
+        notes.append(
+            "_`*` = recorded from a working tree with uncommitted changes, so not "
+            "reproducible from the SHA alone._"
+        )
+    lines.extend(notes)
     return "\n".join(lines)
 
 
@@ -127,7 +221,7 @@ def main() -> int:
         print("error: README is missing the RESULTS_TABLE markers", file=sys.stderr)
         return 2
 
-    runs = load_experiments(args.split)
+    runs = latest_per_group(load_experiments(args.split))
     updated = splice(readme, build_table(runs))
 
     if args.check:
@@ -138,11 +232,11 @@ def main() -> int:
         return 0
 
     if updated == readme:
-        print(f"README already up to date ({len(runs)} run(s)).")
+        print(f"README already up to date ({len(runs)} row(s)).")
         return 0
 
     README.write_text(updated, encoding="utf-8")
-    print(f"README results table updated from {len(runs)} run(s).")
+    print(f"README results table updated: {len(runs)} row(s).")
     return 0
 
 

@@ -11,18 +11,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import {
-  ApiError,
-  api,
-  type Citation,
-  type QueryResponse,
-  type SentenceVerification,
-} from "@/lib/api";
+import { ApiError, api, type Citation, type QueryResponse, type Segment } from "@/lib/api";
+import { AnswerText } from "@/components/answer-text";
 import {
   ErrorNote,
   Field,
   Spinner,
   VerificationMark,
+  cleanHeading,
   formatCost,
   formatMs,
 } from "@/components/primitives";
@@ -34,29 +30,35 @@ const EXAMPLES = [
   "Which kubectl command patches a running Deployment?",
 ];
 
-/** Split an answer into sentences so each can carry its verification mark. */
-function splitSentences(answer: string): string[] {
-  return answer
-    .split(/(?<=[.!?])\s+(?=[A-Z(`[])/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+/**
+ * The answer's sentences, as the server split them.
+ *
+ * This used to re-split `answer` in the browser and look each sentence up in
+ * the verifier's list by exact text. The two splitters disagreed at the edges
+ * -- a `[3]` after the full stop, a full-width `【1】` -- and a sentence whose
+ * split differed silently lost its verdict. The server now returns segments
+ * produced by the verifier's own splitter, so there is one definition of a
+ * sentence.
+ */
+/** At most `limit` characters, cut at a word, with the cut shown. */
+function clip(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
-function verdictFor(
-  sentence: string,
-  verifications: SentenceVerification[] | undefined,
-): SentenceVerification | undefined {
-  if (!verifications?.length) return undefined;
-  const normalized = sentence.replace(/\s+/g, " ").trim();
-  return verifications.find(
-    (v) => v.sentence.replace(/\s+/g, " ").trim() === normalized,
-  );
+function segmentsOf(result: QueryResponse): Segment[] {
+  if (result.segments?.length) return result.segments;
+  // An older API without segments: one block, no per-sentence marks.
+  return [{ text: result.answer, citations: [], factual: false, verdict: null, reason: "" }];
 }
 
 export default function AskPage() {
   const [question, setQuestion] = useState("");
   const [version, setVersion] = useState<string>("auto");
-  const [configName, setConfigName] = useState<string>("baseline");
+  // Empty until /versions answers with the server's default pipeline.
+  const [configName, setConfigName] = useState<string>("");
   const [versions, setVersions] = useState<string[]>([]);
   const [configs, setConfigs] = useState<string[]>([]);
   const [result, setResult] = useState<QueryResponse | null>(null);
@@ -74,7 +76,10 @@ export default function AskPage() {
       .then((data) => {
         setVersions(data.versions);
         setConfigs(data.configs);
-        if (data.configs.includes("baseline")) setConfigName("baseline");
+        // The server's shipping pipeline, not `baseline`: the baseline exists
+        // to be beaten, and defaulting to it hid verification and conflict
+        // notes -- the features the page is about -- behind a dropdown.
+        setConfigName((current) => current || data.default_config);
       })
       .catch(() => {
         /* The banner on first query covers an unreachable backend. */
@@ -97,7 +102,7 @@ export default function AskPage() {
         const response = await api.query({
           question: trimmed,
           version: version === "auto" ? null : version,
-          config_name: configName,
+          config_name: configName || null,
         });
         setResult(response);
       } catch (exc) {
@@ -121,10 +126,7 @@ export default function AskPage() {
     }
   }, []);
 
-  const sentences = useMemo(
-    () => (result ? splitSentences(result.answer) : []),
-    [result],
-  );
+  const segments = useMemo(() => (result ? segmentsOf(result) : []), [result]);
 
   const vote = async (helpful: boolean) => {
     if (!result?.trace_id) return;
@@ -187,7 +189,8 @@ export default function AskPage() {
               onChange={(event) => setConfigName(event.target.value)}
               className="bg-panel border border-line rounded-sm px-2 py-1 mono text-xs text-text"
             >
-              {(configs.length ? configs : ["baseline"]).map((c) => (
+              {!configName && <option value="">server default</option>}
+              {configs.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -220,19 +223,19 @@ export default function AskPage() {
               then have to live up to on the very next screen. */}
           <div className="mt-12 rule-ticked" />
           <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-x-10 gap-y-6 max-w-5xl">
-            <Promise heading="Every claim is cited">
+            <Commitment heading="Every claim is cited">
               Each sentence points at the excerpt behind it. Click a marker to
               read the source.
-            </Promise>
-            <Promise heading="Citations are checked">
+            </Commitment>
+            <Commitment heading="Citations are checked">
               A second pass asks whether each cited excerpt really supports its
               sentence. When too little holds up, the answer is withheld rather
               than dressed up.
-            </Promise>
-            <Promise heading="Versions stay separate">
+            </Commitment>
+            <Commitment heading="Versions stay separate">
               Answers come from one release. Where the docs changed, the
               difference is shown beside the answer instead of blended into it.
-            </Promise>
+            </Commitment>
           </div>
 
           <p className="mt-8 text-xs text-dim max-w-prose">
@@ -273,38 +276,37 @@ export default function AskPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {sentences.map((sentence, index) => {
-                  const verification = verdictFor(sentence, result.verification?.sentences);
-                  const parts = sentence.split(/(\[\d+\])/g);
-                  return (
-                    <p key={index} className="flex gap-3 items-start leading-relaxed">
-                      <span className="pt-[7px] w-[10px]">
-                        {verification && <VerificationMark verdict={verification.verdict} />}
-                      </span>
-                      <span className="flex-1">
-                        {parts.map((part, partIndex) => {
-                          const match = part.match(/^\[(\d+)\]$/);
-                          if (!match) return <span key={partIndex}>{part}</span>;
-                          const marker = Number(match[1]);
-                          return (
-                            <button
-                              key={partIndex}
-                              onClick={() => focusCitation(marker)}
-                              aria-label={`Show excerpt ${marker}`}
-                              className={`mono text-[11px] align-super px-1 rounded-[2px] transition-colors ${
-                                activeCitation === marker
-                                  ? "bg-brass text-ink"
-                                  : "text-brass hover:bg-raised"
-                              }`}
-                            >
-                              {marker}
-                            </button>
-                          );
-                        })}
-                      </span>
-                    </p>
-                  );
-                })}
+                {segments.map((segment, index) => (
+                  // A div, not a p: a sentence can hold a code block.
+                  <div
+                    key={index}
+                    className="flex gap-3 items-start leading-relaxed"
+                    title={segment.reason || undefined}
+                  >
+                    <span className="pt-[7px] w-[10px] shrink-0">
+                      {segment.verdict && <VerificationMark verdict={segment.verdict} />}
+                    </span>
+                    <div className="flex-1 min-w-0 wrap-anywhere">
+                      <AnswerText
+                        text={segment.display || segment.text}
+                        citation={(marker, key) => (
+                          <button
+                            key={key}
+                            onClick={() => focusCitation(marker)}
+                            aria-label={`Show excerpt ${marker}`}
+                            className={`mono text-[11px] align-super px-1 rounded-[2px] transition-colors ${
+                              activeCitation === marker
+                                ? "bg-brass text-ink"
+                                : "text-brass hover:bg-raised"
+                            }`}
+                          >
+                            {marker}
+                          </button>
+                        )}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -319,7 +321,7 @@ export default function AskPage() {
                     <div key={index} className="px-4 py-3 text-sm">
                       <div className="mono text-xs text-mute">
                         {conflict.source_path}
-                        {conflict.heading_path && ` · ${conflict.heading_path}`}
+                        {conflict.heading_path && ` · ${cleanHeading(conflict.heading_path)}`}
                       </div>
                       <div className="mt-2 grid sm:grid-cols-2 gap-3">
                         <div>
@@ -327,7 +329,7 @@ export default function AskPage() {
                             v{conflict.latest_version} — answered from this
                           </div>
                           <p className="text-text/90 text-[13px] leading-snug">
-                            {conflict.latest_text.slice(0, 260)}
+                            {clip(conflict.latest_text, 260)}
                           </p>
                         </div>
                         <div>
@@ -335,7 +337,7 @@ export default function AskPage() {
                             v{conflict.other_version}
                           </div>
                           <p className="text-mute text-[13px] leading-snug">
-                            {conflict.other_text.slice(0, 260)}
+                            {clip(conflict.other_text, 260)}
                           </p>
                         </div>
                       </div>
@@ -358,6 +360,8 @@ export default function AskPage() {
                 </Field>
               )}
               <Field label="Excerpts used">{result.citations.length}</Field>
+              <Field label="Pipeline">{result.config_name}</Field>
+              {result.regenerated && <Field label="Regenerated">once, after verification</Field>}
             </div>
             <p className="mt-2 text-xs text-dim">{result.version_reason}</p>
 
@@ -430,7 +434,7 @@ export default function AskPage() {
   );
 }
 
-function Promise({ heading, children }: { heading: string; children: React.ReactNode }) {
+function Commitment({ heading, children }: { heading: string; children: React.ReactNode }) {
   return (
     <div className="border-t border-line-bright pt-3">
       <h2 className="text-text font-medium text-[15px]">{heading}</h2>
@@ -481,13 +485,13 @@ function Excerpt({
           </a>
           <div className="mono text-[11px] text-dim mt-0.5">
             v{citation.version}
-            {citation.heading_path && ` · ${citation.heading_path}`}
+            {citation.heading_path && ` · ${cleanHeading(citation.heading_path)}`}
           </div>
         </div>
       </div>
 
       <div className="px-3 py-2">
-        <p className="text-[13px] leading-snug text-text/90 whitespace-pre-wrap">
+        <p className="text-[13px] leading-snug text-text/90 whitespace-pre-wrap wrap-anywhere">
           {expanded || !long ? citation.text : `${citation.text.slice(0, 420)}…`}
         </p>
         {long && (

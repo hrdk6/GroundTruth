@@ -73,7 +73,17 @@ class Candidate:
 
 @dataclass
 class RetrievalResult:
-    """Final candidates plus the intermediate sets that produced them."""
+    """Final candidates plus the intermediate sets that produced them.
+
+    Two lists, and the difference is load-bearing for evaluation:
+
+    * `candidates` is the **context** -- the top `k_final` chunks the model is
+      shown. Attribution asks whether gold made it *here*.
+    * `ranked` is the **full final ordering** before that cut. Ranking metrics
+      (recall@10, MRR, nDCG@10) are computed over it. Computing them over the
+      five-chunk context instead makes recall@10 identical to recall@5 by
+      construction -- a column that looks measured and carries no information.
+    """
 
     candidates: list[Candidate]
     query: str
@@ -83,6 +93,11 @@ class RetrievalResult:
     # Stage name -> candidates that stage emitted, kept for attribution.
     stage_outputs: dict[str, list[Candidate]] = field(default_factory=dict)
     timings_ms: dict[str, float] = field(default_factory=dict)
+    ranked: list[Candidate] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.ranked:
+            self.ranked = list(self.candidates)
 
     def chunk_ids(self) -> list[int]:
         return [c.chunk_id for c in self.candidates]

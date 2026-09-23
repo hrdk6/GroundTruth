@@ -1,0 +1,47 @@
+# Ablation: `hybrid` with the lexical leg's original all-terms semantics.
+#
+# Against: hybrid. The single variable is lexical.match (all vs any).
+# websearch_to_tsquery ANDs every term of the question and treats a leading
+# `-` as NOT. On a natural-language question that usually means the lexical
+# leg returns nothing, and fusion is fusing dense retrieval with an empty list.
+# Hypothesis: `any` lifts exact_term and table_or_code, where literal tokens
+# (field names, flags) are exactly what dense retrieval under-weights.
+name: hybrid_all_terms
+description: >
+  hybrid, but the lexical leg requires every question term to match
+  (websearch_to_tsquery), which is how hybrid was first measured.
+
+chunking:
+  chunker: structure_aware
+  max_tokens: 512
+  overlap_tokens: 64
+  min_tokens: 64
+  prepend_heading_path: true
+
+embedding:
+  model: BAAI/bge-small-en-v1.5
+  dimension: 384
+  batch_size: 64
+  normalize: true
+
+retrieval:
+  dense: {enabled: true, k: 20}
+  lexical: {enabled: true, k: 20, text_search_config: english, match: all}
+  fusion: {enabled: true, rrf_k: 60}
+  rerank: {enabled: false}
+  query_rewrite: {enabled: false}
+  decomposition: {enabled: false}
+  k_final: 5
+  version_filter: true
+
+generation:
+  prompt: grounded_v1
+  max_tokens: 1024
+
+verification:
+  enabled: false
+
+versioning:
+  default_version: latest
+  detect_from_question: true
+  conflict_detection: false

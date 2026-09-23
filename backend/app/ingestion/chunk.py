@@ -14,6 +14,12 @@ Two strategies, selected by config:
   sits in the document.
 
 Both emit the same `Chunk` shape so retrieval never needs to know which ran.
+
+Both also cut chunk text **verbatim** out of the source, using token offsets to
+find the boundaries. An earlier version decoded token ids back to text, which
+with bge's uncased WordPiece tokenizer lowercased every chunk and spaced out
+its punctuation. See `tokenizer.py` for why that matters, and EXPERIMENTS.md
+for what it did to the baseline's numbers.
 """
 
 from __future__ import annotations
@@ -23,15 +29,22 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from app.core.pipeline import ChunkingConfig
-from app.ingestion.tokenizer import MODEL_MAX_TOKENS, Tokenizer
+from app.core.pipeline import CHUNKER_REVISIONS, ChunkingConfig
+from app.ingestion.tokenizer import MODEL_MAX_TOKENS, Offsets, Tokenizer
 
 ChunkType = Literal["prose", "code", "table", "mixed"]
+
+
+def _slice(text: str, offsets: Offsets, start: int, end: int) -> str:
+    """The source text covered by tokens `[start, end)`, exactly as written."""
+    return text[offsets[start][0] : offsets[end - 1][1]]
+
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+_HAS_WORD = re.compile(r"[^\W_]")  # any letter or digit, in any script
 
 
 @dataclass
@@ -144,10 +157,10 @@ class FixedChunker:
     def __init__(self, config: ChunkingConfig, tokenizer: Tokenizer) -> None:
         self.config = config
         self.tokenizer = tokenizer
-        self.name = f"fixed-{config.max_tokens}-{config.overlap_tokens}"
+        self.name = config.label
 
     def chunk(self, text: str, *, title: str = "") -> list[TextChunk]:
-        tokens = self.tokenizer.encode(text)
+        tokens, offsets = self.tokenizer.encode_with_offsets(text)
         if not tokens:
             return []
 
@@ -163,7 +176,7 @@ class FixedChunker:
             # near-duplicate row and inflates retrieval candidates.
             if start > 0 and len(window) <= self.config.overlap_tokens:
                 break
-            body = self.tokenizer.decode(window).strip()
+            body = _slice(text, offsets, start, start + len(window)).strip()
             if not body or (len(window) < self.config.min_tokens and start > 0):
                 continue
             chunks.append(
@@ -190,7 +203,7 @@ class StructureAwareChunker:
     def __init__(self, config: ChunkingConfig, tokenizer: Tokenizer) -> None:
         self.config = config
         self.tokenizer = tokenizer
-        self.name = f"structure_aware-{config.max_tokens}-{config.overlap_tokens}"
+        self.name = config.label
 
     def chunk(self, text: str, *, title: str = "") -> list[TextChunk]:
         sections = self._split_sections(text, title)
@@ -201,9 +214,13 @@ class StructureAwareChunker:
             if not blocks:
                 continue
             for piece in self._pack(blocks):
-                token_count = self.tokenizer.count(piece.text)
-                if not piece.text.strip():
+                # A piece with no letter or digit is markup debris -- an empty
+                # list bullet where an `{{< include >}}` stood, a lone `#` or
+                # `---` -- and embedding it adds a retrievable chunk that says
+                # nothing. (Revision 3.)
+                if not _HAS_WORD.search(piece.text):
                     continue
+                token_count = self.tokenizer.count(piece.text)
                 chunk = TextChunk(
                     index=len(chunks),
                     text=piece.text,
@@ -305,15 +322,16 @@ class StructureAwareChunker:
 
     def _split_prose(self, block: _Block, limit: int) -> list[_Block]:
         """Split an oversized paragraph at token boundaries, with overlap."""
-        tokens = self.tokenizer.encode(block.text)
+        tokens, offsets = self.tokenizer.encode_with_offsets(block.text)
         step = max(1, limit - self.config.overlap_tokens)
         pieces: list[_Block] = []
         for start in range(0, len(tokens), step):
-            window = tokens[start : start + limit]
-            if not window:
+            end = min(start + limit, len(tokens))
+            if start >= end:
                 break
-            pieces.append(_Block(self.tokenizer.decode(window).strip(), block.kind, False))
-            if start + limit >= len(tokens):
+            piece = _slice(block.text, offsets, start, end).strip()
+            pieces.append(_Block(piece, block.kind, False))
+            if end >= len(tokens):
                 break
         return pieces
 
@@ -348,6 +366,8 @@ class StructureAwareChunker:
 
 
 def build_chunker(config: ChunkingConfig, tokenizer: Tokenizer) -> Chunker:
+    if config.chunker not in CHUNKER_REVISIONS:
+        raise ValueError(f"Unknown chunker: {config.chunker}")
     if config.chunker == "fixed":
         return FixedChunker(config, tokenizer)
     if config.chunker == "structure_aware":

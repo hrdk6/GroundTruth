@@ -7,14 +7,21 @@
  * point: a change that lifts `exact_term` by 0.2 while costing 0.05 everywhere
  * else is a different decision from one that lifts everything slightly, and an
  * overall average hides which one happened.
+ *
+ * Every headline delta carries a paired 95% interval and says plainly whether
+ * it is distinguishable from noise. On a 19-item split most differences under
+ * ~0.15 are not, and a dashboard that shows a green +0.071 without saying so is
+ * making a claim the data does not support.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   api,
+  type Comparison as PairedComparison,
   type ExperimentDetail,
   type ExperimentSummary,
+  type Interval,
 } from "@/lib/api";
 import {
   Delta,
@@ -29,7 +36,7 @@ import {
 const HEADLINE_METRICS = [
   ["recall@5", "Recall@5"],
   ["recall@10", "Recall@10"],
-  ["mrr", "MRR"],
+  ["mrr", "MRR@10"],
   ["ndcg@10", "nDCG@10"],
   ["answer_correctness", "Correctness"],
   ["faithfulness", "Faithfulness"],
@@ -61,20 +68,38 @@ export default function ExperimentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [details, setDetails] = useState<Record<string, ExperimentDetail>>({});
+  // Pre-audit runs are history. Off by default; on, they can be compared
+  // against their corrected re-runs to see what the measurement bugs did.
+  const [showSuperseded, setShowSuperseded] = useState(false);
 
   useEffect(() => {
     api
-      .experiments()
+      .experiments(showSuperseded)
       .then((data) => {
         setRuns(data);
-        // Default to comparing the two most recent runs.
-        if (data.length >= 2) setSelected([data[1].id, data[0].id]);
-        else if (data.length === 1) setSelected([data[0].id]);
+        setSelected((current) => {
+          const ids = new Set(data.map((run) => run.id));
+          const kept = current.filter((id) => ids.has(id));
+          if (kept.length) return kept;
+          // Default to the newest run and the newest *comparable* one: same
+          // golden set, same split. The two newest runs are often dev and test
+          // of one config, and comparing those measures the questions, not the
+          // pipeline.
+          const [newest] = data;
+          if (!newest) return [];
+          const partner = data.find(
+            (run) =>
+              run.id !== newest.id &&
+              run.dataset_version === newest.dataset_version &&
+              run.split === newest.split,
+          );
+          return partner ? [partner.id, newest.id] : [newest.id];
+        });
       })
       .catch((exc) =>
         setError(exc instanceof ApiError ? exc.message : "Could not load experiments."),
       );
-  }, []);
+  }, [showSuperseded]);
 
   useEffect(() => {
     for (const id of selected) {
@@ -116,6 +141,15 @@ export default function ExperimentsPage() {
         recorded with its config hash, git SHA, and dataset version. Select two to
         compare.
       </p>
+      <label className="mt-3 inline-flex items-center gap-2 text-xs text-mute cursor-pointer">
+        <input
+          type="checkbox"
+          checked={showSuperseded}
+          onChange={(event) => setShowSuperseded(event.target.checked)}
+          className="accent-[#E0B33A]"
+        />
+        Show superseded pre-audit runs (history; their numbers are not results)
+      </label>
 
       <div className="mt-6">
         {error && <ErrorNote message={error} />}
@@ -140,8 +174,9 @@ export default function ExperimentsPage() {
                     <th className="px-3 py-2 font-medium w-28">Dataset</th>
                     <th className="px-3 py-2 font-medium w-20">Split</th>
                     <th className="px-3 py-2 font-medium w-24">Mode</th>
-                    <th className="px-3 py-2 font-medium w-40">Recall@5</th>
-                    <th className="px-3 py-2 font-medium w-40">MRR</th>
+                    <th className="px-3 py-2 font-medium w-12 text-right">n</th>
+                    <th className="px-3 py-2 font-medium w-48">Recall@5 · 95% CI</th>
+                    <th className="px-3 py-2 font-medium w-40">MRR@10</th>
                     <th className="px-3 py-2 font-medium w-20 text-right">Cost</th>
                     <th className="px-3 py-2 font-medium w-24">Commit</th>
                     <th className="px-3 py-2 font-medium w-36">When</th>
@@ -168,14 +203,26 @@ export default function ExperimentsPage() {
                             className="accent-[#E0B33A]"
                           />
                         </td>
-                        <td className="px-3 py-2 mono text-xs text-text">{run.config_name}</td>
+                        <td className="px-3 py-2 mono text-xs text-text">
+                          {run.config_name}
+                          {run.superseded && (
+                            <span className="ml-2 text-[10px] text-alarm">superseded</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 mono text-xs text-mute">
                           {run.dataset_version ?? "—"}
                         </td>
                         <td className="px-3 py-2 mono text-xs text-mute">{run.split}</td>
                         <td className="px-3 py-2 mono text-xs text-mute">{run.mode}</td>
+                        <td className="px-3 py-2 mono text-xs text-mute text-right tnum">
+                          {run.metrics["count"] ?? "—"}
+                        </td>
                         <td className="px-3 py-2">
-                          <Meter value={run.metrics["recall@5"] as number | null} />
+                          <div className="flex items-center gap-2">
+                            <Meter value={run.metrics["recall@5"] as number | null} />
+                            <CI interval={run.confidence?.["recall@5"]} />
+                          </div>
+                          <CeilingWarning ceiling={run.integrity?.recall_ceiling} />
                         </td>
                         <td className="px-3 py-2">
                           <Meter value={run.metrics["mrr"] as number | null} />
@@ -183,10 +230,18 @@ export default function ExperimentsPage() {
                         <td className="px-3 py-2 mono text-xs text-mute text-right tnum">
                           {formatCost(run.cost_usd)}
                         </td>
-                        <td className="px-3 py-2 mono text-xs text-dim">
+                        <td
+                          className="px-3 py-2 mono text-xs text-dim whitespace-nowrap"
+                          title={
+                            run.git_dirty
+                              ? "Recorded from uncommitted changes: not reproducible from this SHA"
+                              : undefined
+                          }
+                        >
                           {run.git_sha ? run.git_sha.slice(0, 7) : "—"}
+                          {run.git_dirty && <span className="text-alarm">*</span>}
                         </td>
-                        <td className="px-3 py-2 mono text-xs text-dim">
+                        <td className="px-3 py-2 mono text-xs text-dim whitespace-nowrap">
                           {formatTime(run.timestamp)}
                         </td>
                       </tr>
@@ -221,8 +276,19 @@ function Comparison({
   head: ExperimentDetail;
   categories: string[];
 }) {
-  const number = (value: unknown): number | null =>
-    typeof value === "number" && !Number.isNaN(value) ? value : null;
+  // Paired statistics come from the server, which pairs the two runs item by
+  // item. A 409 means the runs are over different items and cannot pair.
+  const [paired, setPaired] = useState<PairedComparison | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
+  useEffect(() => {
+    setPaired(null);
+    setPairError(null);
+    api
+      .compare(base.id, head.id)
+      .then(setPaired)
+      .catch((exc) => setPairError(exc instanceof ApiError ? exc.message : "unavailable"));
+  }, [base.id, head.id]);
+  const pairedBy = Object.fromEntries((paired?.metrics ?? []).map((m) => [m.metric, m]));
 
   return (
     <div className="mt-8">
@@ -236,16 +302,22 @@ function Comparison({
         </span>
       </h2>
 
-      {base.dataset_version !== head.dataset_version && (
+      {(base.dataset_version !== head.dataset_version || base.split !== head.split) && (
         <div
           role="alert"
           className="mb-5 border-l-2 px-4 py-3 text-sm bg-panel"
           style={{ borderColor: "var(--color-alarm)" }}
         >
-          These runs used different golden sets (
-          <span className="mono text-xs">{base.dataset_version}</span> vs{" "}
-          <span className="mono text-xs">{head.dataset_version}</span>). The deltas below
-          are not a like-for-like comparison.
+          These runs scored different questions (
+          <span className="mono text-xs">
+            {base.dataset_version}/{base.split}
+          </span>{" "}
+          vs{" "}
+          <span className="mono text-xs">
+            {head.dataset_version}/{head.split}
+          </span>
+          ), so the deltas below are not a comparison of the two configs — only of two
+          question sets.
         </div>
       )}
 
@@ -256,9 +328,10 @@ function Comparison({
             <thead>
               <tr className="text-left text-[11px] text-dim">
                 <th className="py-2 font-medium">Metric</th>
-                <th className="py-2 font-medium w-28 text-right">{base.config_name}</th>
-                <th className="py-2 font-medium w-28 text-right">{head.config_name}</th>
+                <th className="py-2 font-medium w-24 text-right">{base.config_name}</th>
+                <th className="py-2 font-medium w-24 text-right">{head.config_name}</th>
                 <th className="py-2 font-medium w-20 text-right">Δ</th>
+                <th className="py-2 font-medium w-40 text-right">paired 95% CI</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -266,6 +339,7 @@ function Comparison({
                 const before = number(base.metrics[key]);
                 const after = number(head.metrics[key]);
                 if (before == null && after == null) return null;
+                const pair = pairedBy[key];
                 return (
                   <tr key={key}>
                     <td className="py-2 text-text">{label}</td>
@@ -280,20 +354,57 @@ function Comparison({
                         value={before != null && after != null ? after - before : null}
                       />
                     </td>
+                    <td className="py-2 text-right mono text-[11px] tnum">
+                      {pair ? (
+                        <span
+                          title={`p = ${pair.p_value.toFixed(3)} · ${pair.wins} item(s) better, ${pair.losses} worse, of ${pair.n}`}
+                          className={pair.distinguishable ? "text-text" : "text-dim"}
+                        >
+                          <span className="whitespace-nowrap">
+                            [{signed(pair.low)}, {signed(pair.high)}]
+                          </span>
+                          <span className="block sm:inline sm:ml-2">
+                            {pair.distinguishable ? "real" : "noise"}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-dim">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          <p className="mt-2 text-[11px] text-dim max-w-prose">
+            {paired
+              ? "Paired by item: bootstrap interval on the per-item difference, and an exact sign-flip test (hover for p). \u201cnoise\u201d means the interval spans zero."
+              : pairError
+                ? `No paired statistics: ${pairError}`
+                : "Computing paired statistics\u2026"}
+          </p>
 
           <div className="mt-4 rule pt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-mute mono">
-            <span>
-              p95 {base.latency.p95_ms.toFixed(0)}ms → {head.latency.p95_ms.toFixed(0)}ms
+            <span
+              title={
+                [base, head].some(servedFromCache)
+                  ? "† mostly replayed from the LLM cache: this measures disk reads, not a cold query"
+                  : undefined
+              }
+            >
+              p95 {base.latency.p95_ms.toFixed(0)}ms{servedFromCache(base) && "†"} →{" "}
+              {head.latency.p95_ms.toFixed(0)}ms{servedFromCache(head) && "†"}
             </span>
             <span>
               cost {formatCost(base.cost.cost_usd)} → {formatCost(head.cost.cost_usd)}
             </span>
             <span>chunker {head.config.chunker_name}</span>
+            {[base, head].some((d) => (d.integrity?.recall_ceiling ?? 1) < 1) && (
+              <span className="text-alarm">
+                recall ceiling {base.integrity?.recall_ceiling?.toFixed(3) ?? "—"} →{" "}
+                {head.integrity?.recall_ceiling?.toFixed(3) ?? "—"}
+              </span>
+            )}
           </div>
         </section>
 
@@ -302,7 +413,7 @@ function Comparison({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[11px] text-dim">
-                <th className="py-2 font-medium">Category · recall@5</th>
+                <th className="py-2 font-medium">Category · recall@5 (unpaired, n per row)</th>
                 <th className="py-2 font-medium w-24 text-right">Before</th>
                 <th className="py-2 font-medium w-24 text-right">After</th>
                 <th className="py-2 font-medium w-20 text-right">Δ</th>
@@ -310,11 +421,16 @@ function Comparison({
             </thead>
             <tbody className="divide-y divide-line">
               {categories.map((category) => {
-                const before = number(base.metrics_by_category[category]?.["recall@5"]);
-                const after = number(head.metrics_by_category[category]?.["recall@5"]);
+                const before = categoryRecall(base, category);
+                const after = categoryRecall(head, category);
                 return (
                   <tr key={category}>
-                    <td className="py-2 mono text-xs text-text">{category}</td>
+                    <td className="py-2 mono text-xs text-text">
+                      {category}
+                      <span className="ml-2 text-dim">
+                        n={String(head.metrics_by_category[category]?.["count"] ?? "—")}
+                      </span>
+                    </td>
                     <td className="py-2 mono text-xs text-mute text-right tnum">
                       {before?.toFixed(3) ?? "—"}
                     </td>
@@ -400,6 +516,56 @@ function AttributionBar({
         ))}
         {entries.length === 0 && <li className="text-xs text-dim">No failures recorded.</li>}
       </ul>
+    </div>
+  );
+}
+
+function number(value: unknown): number | null {
+  return typeof value === "number" && !Number.isNaN(value) ? value : null;
+}
+
+function signed(value: number): string {
+  return `${value >= 0 ? "+" : "\u2212"}${Math.abs(value).toFixed(2)}`;
+}
+
+/**
+ * Recall@5 for one category, or null when no item in it has gold evidence:
+ * records store 0.0 for a mean over nothing, which is not a score.
+ */
+function categoryRecall(run: ExperimentDetail, category: string): number | null {
+  const values = run.metrics_by_category[category];
+  if (!values || !values["count"]) return null;
+  return number(values["recall@5"]);
+}
+
+/**
+ * A run that mostly replayed the LLM cache measured the cache, not the model.
+ * Same rule as the README table's dagger (scripts/generate_results_table.py).
+ */
+function servedFromCache(run: ExperimentDetail): boolean {
+  const { calls, cached_calls } = run.cost;
+  return calls > 0 && cached_calls / calls >= 0.5;
+}
+
+/** A run's own 95% interval, shown next to its point estimate. */
+function CI({ interval }: { interval: Interval | undefined }) {
+  if (!interval) return null;
+  return (
+    <span className="mono text-[11px] text-dim tnum">
+      [{interval.low.toFixed(2)}, {interval.high.toFixed(2)}]
+    </span>
+  );
+}
+
+/**
+ * Some gold quote could not match any chunk, so recall had a ceiling below 1
+ * before retrieval even ran. This is how the decode bug would have shown up.
+ */
+function CeilingWarning({ ceiling }: { ceiling: number | undefined }) {
+  if (ceiling == null || ceiling >= 1) return null;
+  return (
+    <div className="mt-1 mono text-[10px] text-alarm">
+      recall capped at {ceiling.toFixed(3)}: gold not matchable
     </div>
   );
 }

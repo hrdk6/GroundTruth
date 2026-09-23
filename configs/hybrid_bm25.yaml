@@ -1,0 +1,48 @@
+# Experiment: rank the lexical leg with Okapi BM25 instead of ts_rank_cd.
+#
+# Against: hybrid. The single variable is lexical.ranking.
+# ts_rank_cd has no IDF. With any-term matching, a chunk that repeats common
+# question words ("data", "default", "pod") outranks the one holding the rare
+# term that actually answers the question -- which is what the hybrid run
+# showed: exact_term items improved and factual items fell (ConfigMap size
+# question: gold went from rank 1 to rank 8).
+# Hypothesis: IDF restores the factual items without giving back exact_term.
+name: hybrid_bm25
+description: >
+  hybrid, with the lexical leg ranked by Okapi BM25 (k1=1.2, b=0.75) computed
+  in SQL over the filtered chunk set.
+
+chunking:
+  chunker: structure_aware
+  max_tokens: 512
+  overlap_tokens: 64
+  min_tokens: 64
+  prepend_heading_path: true
+
+embedding:
+  model: BAAI/bge-small-en-v1.5
+  dimension: 384
+  batch_size: 64
+  normalize: true
+
+retrieval:
+  dense: {enabled: true, k: 20}
+  lexical: {enabled: true, k: 20, text_search_config: english, match: any, ranking: bm25}
+  fusion: {enabled: true, rrf_k: 60}
+  rerank: {enabled: false}
+  query_rewrite: {enabled: false}
+  decomposition: {enabled: false}
+  k_final: 5
+  version_filter: true
+
+generation:
+  prompt: grounded_v1
+  max_tokens: 1024
+
+verification:
+  enabled: false
+
+versioning:
+  default_version: latest
+  detect_from_question: true
+  conflict_detection: false

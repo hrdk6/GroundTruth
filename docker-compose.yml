@@ -1,9 +1,9 @@
 # GroundTruth local stack: `make up`.
 #
 # The backend mounts the source read-write and runs uvicorn --reload, so edits
-# on the host take effect without a rebuild. The frontend service is a
-# placeholder until Phase 6 and is behind the `frontend` profile so it does not
-# slow down `make up` before then.
+# on the host take effect without a rebuild. The frontend is behind the
+# `frontend` profile (`docker compose --profile frontend up`) so `make up`
+# stays fast for backend-only work.
 
 services:
   db:
@@ -40,9 +40,20 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-groundtruth}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-groundtruth}
       POSTGRES_DB: ${POSTGRES_DB:-groundtruth}
+      # The provider every published result used is an OpenAI-compatible free
+      # tier, so it has to be reachable from the container too -- not only
+      # Anthropic. Values come from the host's .env via Compose interpolation.
+      GT_LLM_PROVIDER: ${GT_LLM_PROVIDER:-anthropic}
+      GT_LLM_BASE_URL: ${GT_LLM_BASE_URL:-}
+      GT_LLM_API_KEY: ${GT_LLM_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GT_GENERATION_MODEL: ${GT_GENERATION_MODEL:-claude-sonnet-5}
+      GT_CHEAP_MODEL: ${GT_CHEAP_MODEL:-claude-haiku-4-5}
       GT_LOG_LEVEL: ${GT_LOG_LEVEL:-INFO}
       GT_LOG_FORMAT: ${GT_LOG_FORMAT:-console}
+      # Absolute, because inside the image the repo root resolves to `/`, and
+      # a relative cache dir would land outside the named volume below.
+      GT_LLM_CACHE_DIR: /cache/llm
       # Keep the HuggingFace model cache on a named volume: re-downloading
       # bge-small on every container start is slow and pointless.
       HF_HOME: /models
@@ -54,7 +65,7 @@ services:
       - ./data:/data
       - ./experiments:/experiments
       - hf_models:/models
-      - llm_cache:/app/.cache
+      - llm_cache:/cache
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
@@ -66,7 +77,9 @@ services:
     depends_on:
       - backend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      # Read by the Next.js dev server's proxy, which runs *inside* this
+      # container: `localhost` here is the frontend itself, not the API.
+      NEXT_PUBLIC_API_URL: http://backend:8000
     ports:
       - "3000:3000"
     volumes:

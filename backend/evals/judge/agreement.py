@@ -15,10 +15,22 @@ Landis & Koch's conventional reading, which the report prints:
 Below ~0.6 the judge is not trustworthy enough to report generation metrics
 from, and the honest response is to iterate on the judge prompt and log it in
 EXPERIMENTS.md -- not to publish the numbers with a caveat.
+
+Two rules keep the agreement number honest:
+
+* **A label belongs to an answer, not to a question.** Each label stores a
+  hash of the answer text it was given. Re-running an experiment produces new
+  answers for the same item ids, and scoring old labels against new answers
+  would measure nothing. Labels whose answer no longer matches are reported
+  as `stale` and left out.
+* **Only model verdicts count.** Abstentions are graded by an exact string
+  rule, not by the judge; including them would pad agreement with matches the
+  judge never made. The runner passes only non-deterministic verdicts here.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -30,6 +42,11 @@ LABELS_DIR = REPO_ROOT / "data" / "golden"
 DEFAULT_LABELS = LABELS_DIR / "human_labels.jsonl"
 
 
+def answer_digest(answer: str) -> str:
+    """Stable identity of the exact answer a label was made against."""
+    return hashlib.sha256(" ".join(answer.split()).encode("utf-8")).hexdigest()[:16]
+
+
 @dataclass
 class HumanLabel:
     """One hand-labelled item."""
@@ -38,6 +55,10 @@ class HumanLabel:
     correct: bool
     faithful: bool | None = None
     notes: str = ""
+    # Hash of the answer that was labelled, and the run it came from. A label
+    # without a digest predates this rule and matches any answer.
+    answer_sha: str | None = None
+    experiment: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,6 +76,7 @@ class AgreementReport:
     judge_fail_human_pass: int = 0  # judge too strict
     interpretation: str = ""
     missing_labels: list[str] = field(default_factory=list)
+    stale_labels: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +91,7 @@ class AgreementReport:
                 "judge_strict": self.judge_fail_human_pass,
             },
             "missing_labels": len(self.missing_labels),
+            "stale_labels": len(self.stale_labels),
         }
 
 
@@ -105,14 +128,28 @@ def cohens_kappa(both_pass: int, both_fail: int, lenient: int, strict: int) -> f
 
 
 def compute_agreement(
-    judge_results: dict[str, bool], human_labels: list[HumanLabel]
+    judge_results: dict[str, bool],
+    human_labels: list[HumanLabel],
+    answer_shas: dict[str, str] | None = None,
 ) -> AgreementReport:
-    """Compare judge pass/fail against human pass/fail, per item id."""
+    """Compare judge pass/fail against human pass/fail, per item.
+
+    `answer_shas` maps item id to the digest of the answer the judge graded.
+    When given, a label made against a different answer is stale and skipped.
+    """
     report = AgreementReport()
 
     for label in human_labels:
         if label.item_id not in judge_results:
+            # Includes rule-decided verdicts, which the caller leaves out.
             report.missing_labels.append(label.item_id)
+            continue
+        if (
+            answer_shas is not None
+            and label.answer_sha is not None
+            and answer_shas.get(label.item_id) != label.answer_sha
+        ):
+            report.stale_labels.append(label.item_id)
             continue
         judge_pass = judge_results[label.item_id]
         if judge_pass and label.correct:
@@ -158,6 +195,8 @@ def load_labels(path: str | Path = DEFAULT_LABELS) -> list[HumanLabel]:
                 correct=bool(data["correct"]),
                 faithful=data.get("faithful"),
                 notes=data.get("notes", ""),
+                answer_sha=data.get("answer_sha"),
+                experiment=data.get("experiment"),
             )
         )
     return labels

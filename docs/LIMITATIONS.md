@@ -24,13 +24,19 @@ several seeds, with variance, would quantify the noise — not yet done.
 
 ### L2 — Postgres full-text search is not BM25
 
-The lexical retrieval leg (Phase 3) uses `ts_rank_cd`, which lacks BM25's IDF
-saturation and document-length normalization. Expect it to underperform a real
-BM25 implementation on long documents and rare terms.
+The lexical retrieval leg (Phase 3) ranks with `ts_rank_cd`, which has no IDF
+at all, and is called without a normalization flag, so no document-length
+normalization either. A common word in the question weighs as much as a rare
+field name. Expect it to underperform a real BM25 implementation on long
+documents and rare terms.
 
-**Real fix.** ParadeDB's `pg_search` extension, which would keep the
-single-database architecture. Deferred until the eval shows lexical recall is
-actually the bottleneck — otherwise it is an assumption, not a finding.
+Until the audit it was also *AND*-matched (`websearch_to_tsquery`), which is a
+different and worse problem: 20 of 32 golden questions matched no chunk at all.
+`lexical.match: any` fixed that; `hybrid_all_terms` measures it.
+
+**Real fix.** Postgres's length-normalization flags (`ts_rank_cd(tsv, q, 1)`)
+are the cheap next experiment. ParadeDB's `pg_search` is the real upgrade and
+keeps the single-database architecture.
 
 ### L3 — Cost figures depend on a hand-maintained price table
 
@@ -80,13 +86,19 @@ The single biggest caveat on every generation number. `answer_correctness`
 grading answers written by the same model. Self-evaluation inflates, and no
 human labels exist yet to say by how much.
 
-`faithfulness` and `citation_precision` reaching exactly 1.000 on the test
-split should be read the same way: the verifier found nothing wrong with
-citations the same model wrote.
+It is also fragile in a way that has now been measured. The same answer
+(`beta [2]`) against the same reference was scored 3 with the citation marker
+visible and 4 without it. Removing markers from the judge's input — a generic
+fix for a judge that read `field[1][2]` as array indexing — moved test
+correctness from 0.769 to 0.923. On 13 items, treat this judge as good to
+about ±0.15 at best.
 
-The one figure here that does not depend on the judge is
+`faithfulness` and `citation_precision` should be read the same way: the
+verifier is the same model checking citations it wrote.
+
+The one figure here that does not depend on a model is
 `abstention_recall 1.000` — abstention is decided by an exact string match on
-the fixed abstention sentence, not by a model.
+the fixed abstention sentence.
 
 **Why it happened.** The free tier served only three models fast enough to use:
 of 58 chat models probed with a 25-second timeout, 55 timed out or returned
@@ -97,11 +109,17 @@ of 58 chat models probed with a 25-second timeout, 55 timed out or returned
 
 ### L8 — The golden set is small, and I wrote it
 
-32 curated items (19 dev / 13 test) against a target of ~300. At 19 dev items,
-**one item is worth about 5 points of recall**, so differences below ~0.10
-should be read as noise. The `hybrid_rerank` regression of −0.072 is one or two
-items; it was reverted on the combination of direction, a new `ranking_miss`
-and a 93x latency cost, not on that number alone.
+32 curated items (19 dev / 13 test) against a target of ~300, of which only
+14 dev and 10 test carry gold evidence and so count toward retrieval metrics.
+Every result now carries a bootstrap interval and every comparison a paired
+test (L18), and the verdict is unambiguous: after the measurement audit, **no
+retrieval change in the project is distinguishable from noise**. The corrected
+baseline, dense retrieval over fixed windows, is as good as anything measured.
+The only distinguishable effect in the repo is the audit's own correction.
+
+The set also has one multi-hop item per split, and no item that names an older
+release, so `version_correctness` tests the latest-version default rather than
+version detection.
 
 The items were also authored by reading the documentation rather than generated
 by a model and curated, because the generators need an API key. That is
@@ -115,10 +133,10 @@ with none of the variety an LLM sweep over thousands of sections would produce.
 3,102 pages across three branches that `make ingest` fetches. Embedding the
 full corpus on CPU ran for over two CPU-hours without finishing.
 
-This matters for interpreting the `hybrid` result in particular: lexical search
-improved *rank* but not *recall*, and the most likely reason is that at 639
-documents dense retrieval already had the gold chunk in its top 20. On a corpus
-ten times larger the recall story could differ. Untested.
+This bounds every retrieval conclusion. At 639 pages, dense retrieval over 20
+candidates may simply be enough, which is one explanation for why no hybrid,
+BM25, or reranking variant separated from it. The stages exist for corpora
+where dense retrieval is not enough; this one does not test that. Untested.
 
 Every ingestion run records the `include` filter it used, so a result can never
 quietly claim more coverage than it had.
@@ -162,8 +180,9 @@ on a fresh database, but locally it is a foot-gun. Re-ingesting the real corpus
 now resurrects them (that resurrection path was itself a bug, fixed and
 regression-tested), but the surprise remains.
 
-**Fix.** Use a separate database for fixture runs, or scope tombstoning to the
-`include` filter as well as the root.
+**Fix.** Use a separate database for fixture runs — which is what the local CI
+simulation does (`postgres_ci`). Tombstoning is already scoped to the `include`
+filter; it is `root` that means "the whole corpus".
 
 ### L14 — Smart App Control blocks freshly written binaries
 
@@ -189,15 +208,16 @@ configured and verified while embedding is blocked.
 
 ### L15 — `multi_hop` is 0.000 in every run
 
-Every configuration, both splits, retrieval-only and full: two items requiring
-evidence from two different pages, neither ever satisfied. `recall@5` demands
+Every configuration, both splits, retrieval-only and full: one item per split
+requiring evidence from two pages, neither ever satisfied. `recall@5` demands
 *all* gold evidence for an item, so retrieving one of the two pages scores zero
 (`partial_recall@10` is reported alongside for diagnosis).
 
-Multi-hop decomposition is enabled in `configs/full.yaml` and did not fix it.
-With only two multi-hop items the measurement is too thin to diagnose further —
-which is itself the finding: the golden set needs more of them before this can
-be worked on honestly.
+Decomposition in `full` gets further than it looks: on both items it surfaces
+*both* gold pages somewhere in the ranked list, but never both in the top 10.
+Merging per-sub-query result lists by raw score is the likely culprit — each
+sub-query's best chunk should be guaranteed a context slot. With one item per
+split this is a diagnosis, not a measurement.
 
 ### L16 — Integration tests used to destroy the developer's corpus
 
@@ -209,3 +229,95 @@ re-ingest.
 They now create and use a separate `<name>_test` database. Worth knowing
 because the failure was silent: the tests passed, and the damage only showed up
 later as an empty database.
+
+## Found in the measurement audit
+
+Each of these was found by re-reading the code against its own claims, then
+measuring. The ones that were bugs are fixed; what remains is recorded here.
+
+### L17 — HNSW filters after the index scan (pgvector 0.6.2)
+
+`pgserver` ships pgvector 0.6.2, which has no iterative index scans. An HNSW
+scan returns `ef_search` nearest neighbours from the *whole* index, and the
+chunk-set and version filters apply to those. With several chunk sets and
+versions sharing one index, dense retrieval came back short (16 of 20 for the
+baseline) without any error.
+
+**Mitigation in place.** `dense.ef_search` (default 200) is set per query, and
+an exact scan runs whenever the index still returns fewer than `k`; the
+fallback is logged. `python -m app.ingestion.prune` removes chunk sets no
+config uses, so dead rows stop crowding live ones.
+
+**Real fix.** pgvector ≥ 0.8 with `hnsw.iterative_scan`, or a partial HNSW
+index per chunk set. The exact fallback is a sequential scan: fine at tens of
+thousands of chunks, not at tens of millions.
+
+### L18 — The intervals are honest, and that is discouraging
+
+Every result now carries a 95% bootstrap interval, and comparisons carry a
+paired interval and an exact sign-flip p-value. On 14 scored dev items and 10
+test items the intervals are wide: most differences between configs are not
+distinguishable from noise, and the tables say so. Percentile bootstrap
+intervals are, if anything, slightly too narrow at this n. The fix is more
+items, not better statistics.
+
+### L19 — The Docker path is fixed by inspection, not by running it
+
+Docker cannot start on the dev machine (L6), and no GitHub remote exists, so CI
+has never run. The Compose fixes in the audit — the frontend's proxy target,
+the LLM cache volume path, the provider environment — were made by reading the
+files, not by running them. `make db-local` is the path every number came from.
+
+### L20 — Conflict detection is lexical similarity on an exact heading
+
+A conflict is a section whose best-matching counterpart in another version
+(same `source_path`, *identical* `heading_path`) has a `difflib` similarity
+below 0.92. So: a renamed heading has no counterpart and is never flagged; a
+paragraph that was merely reordered can be; and a one-number change in a long
+section may stay above the threshold. The audit fixed the gross error —
+comparing each chunk against *every* chunk of the section, which made 245 of
+the fixture's chunks "conflicts" where 38 were — but the method is still a
+heuristic, and it has no golden set of its own.
+
+### L21 — Bare version numbers are detected by shape
+
+`how does this work in 1.28?` now names a version (spec 8.4), via a rule:
+major version 1, a two-digit minor, and no unit after it. So "1.5 GB" and
+"1.25 CPUs" are quantities, but "set the ratio to 1.20" would read as a
+release. There is no version-detection golden set; the rule's tests are the
+only evidence it works.
+
+### L22 — Sentence splitting is a regex
+
+The verifier and the UI split answers with one regex on sentence-ending
+punctuation followed by a capital, backtick or bracket. "e.g. Pods" splits in
+the wrong place, and a sentence starting with a lowercase identifier does not
+split at all. Each misplaced boundary changes which claim a citation is
+checked against. The audit fixed the splitter's worst case (a mid-answer
+`[3]` after its full stop was attributed to the next sentence) but not the
+approach.
+
+### L23 — Stored heading paths keep Hugo anchors
+
+Headings like `## Termination of Pods {#pod-termination}` keep the `{#...}`
+anchor in the stored heading path, so it is embedded with the chunk (the
+heading path is prepended) and matched by conflict detection. The UI strips it
+for display. The real fix is in the parser, and it changes every affected
+document's content hash, so it waits for the next re-ingest and re-measurement.
+
+### L24 — The pgserver data directory can need crash recovery
+
+The dev database lives under OneDrive, and a killed session left it needing
+crash recovery. `make db-local` then timed out: pgserver waits 10 seconds for
+`pg_ctl start`, and recovery spent 30 seconds retrying an fsync of pgserver's
+own log file, which Windows reported as a sharing violation. Recovery completed
+on its own, and re-running `make db-local` picked up the new port. Nothing was
+lost, but the first failure looks like a dead database.
+
+### L25 — Generation latency has never been measured cold
+
+Every published `full` record replays the LLM cache, so its p50 measures disk
+reads, not a query (the results table marks it †). A cold measurement needs
+`GT_LLM_CACHE_ENABLED=false` and a provider fast enough that the number means
+something; on the free tier, one verification call per sentence dominates.
+

@@ -62,6 +62,23 @@ _FEATURE_STATE = re.compile(
 )
 _ANY_SHORTCODE = re.compile(r"\{\{[<%][^}]*?[>%]\}\}", re.DOTALL)
 
+# `## {{% heading "prerequisites" %}}` renders as a localized section title.
+# Stripped like any other shortcode it left an *empty* heading -- on 266 of the
+# evaluated pages -- so "Before you begin" and "What's next" shared one
+# heading path, were merged as if they were one section, and were paired
+# against each other by conflict detection. These are the site's English
+# labels (kubernetes/website data/i18n/en/en.toml).
+_HEADING_SHORTCODE = re.compile(r"\{\{[<%]\s*heading\s+\"([^\"]+)\"\s*[>%]\}\}", re.IGNORECASE)
+_HEADING_LABELS = {
+    "prerequisites": "Before you begin",
+    "whatsnext": "What's next",
+    "objectives": "Objectives",
+    "cleanup": "Clean up",
+    "seealso": "See also",
+    "synopsis": "Synopsis",
+    "options": "Options",
+}
+
 _FENCE = re.compile(r"^(```|~~~)")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 # [text](/docs/concepts/) -> absolute; leaves external and anchor links alone.
@@ -79,18 +96,51 @@ class ParsedDocument:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+def _strip_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    """Remove `<!-- ... -->` from one line, carrying multi-line state across lines."""
+    kept: list[str] = []
+    position = 0
+    while position < len(line):
+        if in_comment:
+            end = line.find("-->", position)
+            if end == -1:
+                return "".join(kept), True
+            position, in_comment = end + 3, False
+        else:
+            start = line.find("<!--", position)
+            if start == -1:
+                kept.append(line[position:])
+                break
+            kept.append(line[position:start])
+            position, in_comment = start + 4, True
+    return "".join(kept), in_comment
+
+
 def _strip_shortcodes(text: str) -> str:
-    """Unwrap content-bearing shortcodes, drop pure markup.
+    """Unwrap content-bearing shortcodes, drop pure markup and HTML comments.
 
     Fenced code blocks are left completely alone: a YAML example may legitimately
     contain brace sequences, and mangling an example is worse than leaving a
     stray shortcode in prose.
+
+    HTML comments never render on the site, and in this corpus they are
+    contributor notes -- "TODO: verify release after which the --cascade flag
+    is switched", "UPDATE THIS WHEN PROMOTING TO BETA" -- plus Hugo section
+    markers like `<!-- steps -->`. Left in, they became 103 chunks with no
+    words at all and sat inside nearly a thousand more, where a reader saw
+    them as documentation and a model could cite them as fact.
     """
     out: list[str] = []
     in_fence = False
     fence_marker = ""
+    in_comment = False
 
     for line in text.splitlines():
+        # Comments are resolved before fences, so a fence *inside* a comment
+        # is commented out rather than opening a code block.
+        if not in_fence and (in_comment or "<!--" in line):
+            line, in_comment = _strip_html_comments(line, in_comment)
+
         stripped = line.lstrip()
         fence = _FENCE.match(stripped)
         if fence:
@@ -106,6 +156,10 @@ def _strip_shortcodes(text: str) -> str:
             out.append(line)
             continue
 
+        line = _HEADING_SHORTCODE.sub(
+            lambda m: _HEADING_LABELS.get(m.group(1).lower(), m.group(1).replace("_", " ").title()),
+            line,
+        )
         line = _GLOSSARY.sub(r"\1", line)
         line = _GLOSSARY_TERM_ONLY.sub(r"\1", line)
         line = _ADMONITION_OPEN.sub(lambda m: f"{m.group(1).capitalize()}:", line)

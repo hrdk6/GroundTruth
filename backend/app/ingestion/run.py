@@ -61,7 +61,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"\ndocuments: +{stats.documents_added} added, ~{stats.documents_updated} updated, "
-        f"={stats.documents_unchanged} unchanged, -{stats.documents_deleted} deleted"
+        f"={stats.documents_unchanged} unchanged, -{stats.documents_deleted} deleted, "
+        f"^{stats.documents_restored} restored"
     )
     print(f"chunks:    {stats.chunks_written} written, {stats.chunks_embedded} embedded")
     print(f"duration:  {stats.duration_seconds:.1f}s")

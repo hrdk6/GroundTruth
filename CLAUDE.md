@@ -38,6 +38,7 @@ exists twice: `Makefile` is the reference, `make.ps1` is a PowerShell shim.
 | Lint + types + tests | `make check` | `./make.ps1 check` |
 | Ingest | `make ingest` | `./make.ps1 ingest` |
 | Evaluate | `make eval CONFIG=configs/x.yaml SPLIT=dev MODE=retrieval` | `./make.ps1 eval -Config configs/x.yaml -Split dev -Mode retrieval` |
+| Compare two runs | `make compare A=<id> B=<id>` | `./make.ps1 compare -A <id> -B <id>` |
 
 Python commands run through `uv run` from `backend/`, which resolves the venv
 automatically — there is no `activate` step.
@@ -59,6 +60,12 @@ automatically — there is no `activate` step.
   ends it.
 - **`pg_trgm` is not in the pgserver build.** Migration `0001` treats it as
   optional and continues without it; nothing in the query path uses it.
+- **pgserver's pgvector is 0.6.2: HNSW filters *after* the index scan.** No
+  iterative scans, so a `WHERE chunker_name/version` filter applies to the
+  `ef_search` nearest neighbours of the whole index, and dense retrieval
+  silently returns fewer than `k`. `dense_search` sets `hnsw.ef_search` per
+  query and falls back to an exact scan; `python -m app.ingestion.prune --yes`
+  removes chunk sets no config uses, which keeps the index uncrowded.
 - **Ingestion is CPU-bound on embedding.** The full corpus (3,102 pages) ran
   over two CPU-hours without finishing. Use
   `--include concepts tasks --versions 1.26 1.30` for a 639-page subset that
@@ -79,12 +86,29 @@ automatically — there is no `activate` step.
   rejects. `app/run.py` owns the `asyncio.run` call and forces
   `SelectorEventLoop`. Run the API natively with `make dev` / `./make.ps1 dev`,
   never bare `uvicorn`. Inside Docker (Linux) none of this applies.
+- **The Next.js rewrite proxy times out at 30s by default.** A `full` answer
+  that regenerates takes 40-60s on the free tier; the backend finished it and
+  the browser got a 500. `experimental.proxyTimeout` in `next.config.mjs`
+  raises it. Keep it above the LLM client's 180s per-call timeout.
 - **Database connect timeout is 3s** (`CONNECT_TIMEOUT_SECONDS` in
   `app/core/db.py`). Without it, "Postgres isn't running" makes `/health` hang
   for ~4 minutes while psycopg retries every resolved address.
+- **Patch scripts on Windows: pass `newline="\n"` to `write_text`.** It
+  otherwise writes CRLF; `.gitattributes` normalizes on commit, but the working
+  copy churns. And inside a quoted heredoc, a Python string holding a doubled
+  backslash-n becomes a *real* newline in the patched file — which is how this
+  very bullet was once mangled. Prefer the Edit tool for anything with escapes.
 - The repo lives under **OneDrive** on the dev machine. `.venv/`,
   `node_modules/`, and `data/raw/` are gitignored, which also keeps them out of
   sync churn — do not move caches outside those paths.
+- **`.gitignore` patterns match at any depth unless anchored.** A bare
+  `models/` once hid `backend/app/models/` (the ORM package) from every commit.
+  Anchor root-only patterns with a leading `/`, and check new ignores with
+  `git check-ignore -v <path>`.
+- **After a killed session, `make db-local` can time out** while Postgres runs
+  crash recovery (it retries an fsync of pgserver's own log file for 30s).
+  Wait, then run it again: it picks up the running server and rewrites the port
+  in `.env`.
 
 ## Anthropic API facts worth not rediscovering
 
@@ -106,10 +130,15 @@ These bit us once; they are encoded in `app/core/llm.py`.
 
 ## Where the project actually stands
 
-**Everything runs and is measured. Total LLM spend: $0.00.** Nine experiments
-in `experiments/`, covering retrieval and generation. `hybrid` is the best
-retrieval config; `full` is the shipping pipeline. Read `EXPERIMENTS.md` before
-changing anything in the retrieval path.
+**Everything runs, is measured, and was audited. Total LLM spend: $0.00.** The
+records in `experiments/` are all from clean trees after the measurement audit;
+the pre-audit ones are in `experiments/superseded/` and must not be quoted as
+results. `full` is the shipping pipeline (hybrid retrieval with BM25 lexical
+ranking, rewrite, decomposition, verification). The honest summary: **no
+retrieval variant is distinguishable from noise on this golden set** — the only
+distinguishable effect is the audit's correction of the baseline. Read
+`EXPERIMENTS.md` before changing anything in the retrieval path, and use
+`make compare` before claiming any difference.
 
 **The one real gap: the judge is the model it judges.** `GT_GENERATION_MODEL`
 and `GT_CHEAP_MODEL` are both `nvidia/nemotron-3-super-120b-a12b`, so
@@ -123,9 +152,12 @@ Running things again:
 ```bash
 make db-local && make migrate          # Postgres + pgvector, no Docker
 make llm-check                         # verify provider before a long run
-cd backend && uv run python -m app.ingestion.run   --config ../configs/hybrid.yaml --versions 1.26 1.30 --include concepts tasks
+(cd backend && uv run python -m app.ingestion.run --config ../configs/full.yaml \
+    --versions 1.26 1.30 --include concepts tasks)
 make eval CONFIG=configs/full.yaml SPLIT=dev MODE=full
+make compare A=<id> B=<id>             # paired, with intervals -- before any claim
 make results                           # regenerate the README table
+(cd backend && uv run python ../scripts/experiment_tables.py)   # EXPERIMENTS.md tables
 ```
 
 Free-tier realities that cost time to learn:
@@ -140,6 +172,29 @@ Free-tier realities that cost time to learn:
   guard.
 - **Models do not always write `[1]`.** Nemotron emits the full-width `【1】`.
   `normalize_citations` handles it; do not narrow that regex.
+
+## Measurement rules learned the hard way
+
+Each of these was a real bug that produced plausible, wrong numbers. See the
+"measurement audit" section of EXPERIMENTS.md.
+
+- **Never build chunk text with `tokenizer.decode`.** bge's tokenizer is uncased
+  WordPiece; decode lowercases and spaces out punctuation. Chunkers slice the
+  source by `encode_with_offsets`.
+- **Bump `CHUNKER_REVISIONS` whenever a chunker's output changes.** It is part
+  of the chunk-set identity (`chunker_name`); without a bump, ingestion finds the
+  old rows and skips every document.
+- **Chunk freshness is per chunk set.** Each chunk records the `content_hash` it
+  was cut from; never go back to checking only the document's hash.
+- **Every run audits its gold** (`integrity.recall_ceiling`). A ceiling below
+  1.0 is a chunker or golden-set bug, never a retrieval result; CI fails on it.
+- **Ranking metrics use `RetrievalResult.ranked`, attribution uses
+  `candidates`.** Computing recall@10 over the five-chunk context made it equal
+  recall@5.
+- **The runner does not pass the expected version** unless `--version-hint`;
+  passing it made `version_correctness` a tautology and disabled conflicts.
+- **Quote intervals, not just point estimates.** `make compare` pairs two runs
+  item by item; on this golden set most differences are within noise.
 
 ## Layout notes
 

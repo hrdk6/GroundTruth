@@ -13,11 +13,17 @@ sort it out -- is what this project exists to argue against.
 Conflict notes are attached rather than merged into the prose: when versions
 disagree, the answer states the latest version's behaviour and appends what
 changed, each with its own citation, so nothing is silently blended.
+
+Cost is tracked per request, on a child of the shared client. The API answers
+several questions at once on worker threads, and a cost read as a delta off one
+shared tracker would bill each request for its neighbours' calls.
 """
 
 from __future__ import annotations
 
 import re
+import time
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -27,7 +33,12 @@ from app.core.llm import LLMClient, get_llm_client
 from app.core.logging import get_logger
 from app.core.pipeline import PipelineConfig
 from app.generation.prompts import ABSTAIN_MESSAGE, render_grounded_prompt
-from app.generation.verify import VerificationReport, normalize_citations, verify_answer
+from app.generation.verify import (
+    VerificationReport,
+    normalize_citations,
+    segment_answer,
+    verify_answer,
+)
 from app.retrieval.base import Candidate, RetrievalResult
 from app.retrieval.retriever import Retriever
 from app.retrieval.versioning import (
@@ -63,23 +74,43 @@ class Citation:
 
 @dataclass
 class AnswerResult:
+    # The answer body, with citation markers normalized to `[n]`. The version
+    # note is kept apart in `conflict_note`, so a client can render conflicts
+    # as structure instead of re-parsing Markdown out of the prose.
     answer: str
     citations: list[Citation] = field(default_factory=list)
     version_used: str | None = None
     version_reason: str = ""
     conflicts: list[dict[str, Any]] = field(default_factory=list)
+    conflict_note: str = ""
     verification: dict[str, Any] = field(default_factory=dict)
+    # Every sentence of `answer`, with its citations and verdict, split once
+    # on the server. A client that re-splits the text itself will disagree
+    # with the verifier about where sentences end.
+    segments: list[dict[str, Any]] = field(default_factory=list)
     abstained: bool = False
     regenerated: bool = False
     retrieval: RetrievalResult | None = None
     trace_id: str | None = None
     cost_usd: float = 0.0
+    total_tokens: int = 0
     latency_ms: float = 0.0
     timings_ms: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def full_text(self) -> str:
+        """The answer as a reader of plain text gets it: body plus version note.
+
+        This is what the judge grades and what a trace stores, so both see the
+        conflict note exactly as a user of the text API would.
+        """
+        return self.answer + self.conflict_note
 
     def to_dict(self, *, include_text: bool = True) -> dict[str, Any]:
         return {
             "answer": self.answer,
+            "conflict_note": self.conflict_note,
+            "segments": self.segments,
             "citations": [c.to_dict() for c in self.citations],
             "version_used": self.version_used,
             "version_reason": self.version_reason,
@@ -173,32 +204,32 @@ class AnswerService:
         version: str | None = None,
         tracer: Tracer | None = None,
     ) -> AnswerResult:
-        import time
-
         started = time.perf_counter()
-        cost_before = self.llm.tracker.cost_usd
-        tokens_before = self.llm.tracker.input_tokens + self.llm.tracker.output_tokens
+        # This request's own tracker, rolling up into the shared one.
+        llm = self.llm.child()
 
         retrieval, decision = self.retriever.retrieve(
-            session, question, version=version, tracer=tracer
+            session, question, version=version, tracer=tracer, llm_client=llm
         )
-        result = self._generate_and_verify(session, question, retrieval, decision, tracer=tracer)
+        result = self._generate_and_verify(
+            session, question, retrieval, decision, llm=llm, tracer=tracer
+        )
 
         result.retrieval = retrieval
         result.timings_ms = {**retrieval.timings_ms, **result.timings_ms}
         result.latency_ms = (time.perf_counter() - started) * 1000
-        result.cost_usd = self.llm.tracker.cost_usd - cost_before
+        result.cost_usd = llm.tracker.cost_usd
+        result.total_tokens = llm.tracker.total_tokens
 
         if tracer is not None:
-            tokens = self.llm.tracker.input_tokens + self.llm.tracker.output_tokens - tokens_before
             result.trace_id = tracer.flush(
                 session,
-                answer=result.answer,
+                answer=result.full_text,
                 abstained=result.abstained,
                 version_used=result.version_used,
                 latency_ms=result.latency_ms,
                 cost_usd=result.cost_usd,
-                total_tokens=tokens,
+                total_tokens=result.total_tokens,
                 meta={
                     "citations": len(result.citations),
                     "conflicts": len(result.conflicts),
@@ -213,10 +244,10 @@ class AnswerService:
         question: str,
         retrieval: RetrievalResult,
         decision: VersionDecision,
+        *,
+        llm: LLMClient,
         tracer: Tracer | None = None,
     ) -> AnswerResult:
-        import time
-
         candidates = retrieval.candidates
         timings: dict[str, float] = {}
 
@@ -227,28 +258,25 @@ class AnswerService:
                 version_reason=decision.reason,
                 abstained=True,
                 verification={"support_fraction": 1.0, "checked": 0, "reason": "no excerpts"},
+                segments=segment_answer(ABSTAIN_MESSAGE, None),
             )
 
         verification_config = self.config.verification
+        model = self.config.generation.model or llm.default_model
 
         started = time.perf_counter()
-        if tracer is not None:
-            with tracer.span("generation", question=question, excerpts=len(candidates)) as span:
-                answer_text = self._generate(question, candidates, decision.version)
+        with _span(tracer, "generation", question=question, excerpts=len(candidates)) as span:
+            answer_text = self._generate(llm, question, candidates, decision.version)
+            if span is not None:
                 span.output = {"answer": answer_text}
-                span.attributes["model"] = self.config.generation.model or self.llm.default_model
-        else:
-            answer_text = self._generate(question, candidates, decision.version)
-        timings["generation"] = (time.perf_counter() - started) * 1000
+                span.attributes["model"] = model
+        timings["generation"] = _elapsed_ms(started)
 
         report = VerificationReport()
         regenerated = False
 
         if verification_config.enabled and not is_abstention(answer_text):
-            started = time.perf_counter()
-            report = verify_answer(
-                self.llm, answer_text, candidates, model=verification_config.model
-            )
+            report = self._verify(llm, answer_text, candidates, tracer=tracer, timings=timings)
 
             if (
                 report.support_fraction < verification_config.support_threshold
@@ -259,21 +287,32 @@ class AnswerService:
                     support_fraction=round(report.support_fraction, 3),
                     threshold=verification_config.support_threshold,
                 )
-                retry = self._generate(
-                    question, candidates, decision.version, feedback=report.feedback()
-                )
+                # Its own span, not part of verification's: a retry is a
+                # generation call, and folding it into the verification span
+                # booked its latency to the wrong stage and hid the rejected
+                # draft's replacement from the trace.
+                started = time.perf_counter()
+                with _span(
+                    tracer, "regeneration", support_fraction=round(report.support_fraction, 4)
+                ) as span:
+                    retry = self._generate(
+                        llm, question, candidates, decision.version, feedback=report.feedback()
+                    )
+                    if span is not None:
+                        span.output = {"answer": retry}
+                        span.attributes["model"] = model
+                timings["generation"] += _elapsed_ms(started)
                 regenerated = True
+
                 if is_abstention(retry):
                     answer_text, report = retry, VerificationReport()
                 else:
-                    retry_report = verify_answer(
-                        self.llm, retry, candidates, model=verification_config.model
+                    retry_report = self._verify(
+                        llm, retry, candidates, tracer=tracer, timings=timings, baseline=report
                     )
                     # Keep the retry only if it is actually better.
                     if retry_report.support_fraction >= report.support_fraction:
                         answer_text, report = retry, retry_report
-
-            timings["verification"] = (time.perf_counter() - started) * 1000
 
         abstained = is_abstention(answer_text)
         if (
@@ -287,9 +326,11 @@ class AnswerService:
             answer_text = ABSTAIN_MESSAGE
             abstained = True
 
+        answer_text = normalize_citations(answer_text)
         citations = [] if abstained else extract_citations(answer_text, candidates)
 
         conflicts: list[VersionConflict] = []
+        conflict_note = ""
         if (
             self.config.versioning.conflict_detection
             and not abstained
@@ -297,16 +338,20 @@ class AnswerService:
             and decision.version
         ):
             started = time.perf_counter()
+            # Only the sections the answer actually cites. Checking the whole
+            # context attached "this differs in other versions" notes about
+            # excerpts the answer never used -- a warning about nothing the
+            # reader was told.
+            cited = [candidates[c.marker - 1] for c in citations]
             conflicts = detect_conflicts(
                 session,
-                candidates,
+                cited,
                 chunker_name=self.config.chunker_name,
                 answer_version=decision.version,
                 all_versions=indexed_versions(session, self.config.chunker_name),
             )
             timings["conflict_detection"] = (time.perf_counter() - started) * 1000
-            if conflicts:
-                answer_text += format_conflict_note(conflicts)
+            conflict_note = format_conflict_note(conflicts)
 
         return AnswerResult(
             answer=answer_text,
@@ -314,14 +359,48 @@ class AnswerService:
             version_used=decision.version,
             version_reason=decision.reason,
             conflicts=[c.to_dict() for c in conflicts],
+            conflict_note=conflict_note,
             verification=report.to_dict() if verification_config.enabled else {},
+            segments=segment_answer(answer_text, report if verification_config.enabled else None),
             abstained=abstained,
             regenerated=regenerated,
             timings_ms=timings,
         )
 
+    def _verify(
+        self,
+        llm: LLMClient,
+        answer_text: str,
+        candidates: list[Candidate],
+        *,
+        tracer: Tracer | None,
+        timings: dict[str, float],
+        baseline: VerificationReport | None = None,
+    ) -> VerificationReport:
+        """One verification pass in its own span; `baseline` marks a retry's."""
+        started = time.perf_counter()
+        # A span of its own: verification is often the slowest stage (one
+        # model call per factual sentence), and a trace without it hides
+        # where most of the latency went.
+        attempt = 1 if baseline is None else 2
+        with _span(tracer, "verification", attempt=attempt) as span:
+            report = verify_answer(
+                llm, answer_text, candidates, model=self.config.verification.model
+            )
+            if span is not None:
+                span.output = {
+                    "support_fraction": round(report.support_fraction, 4),
+                    "checked": report.checked,
+                    "unsupported": len(report.unsupported),
+                }
+                if baseline is not None:
+                    span.output["kept"] = report.support_fraction >= baseline.support_fraction
+        timings["verification"] = timings.get("verification", 0.0) + _elapsed_ms(started)
+        return report
+
     def _generate(
         self,
+        llm: LLMClient,
         question: str,
         candidates: list[Candidate],
         version: str | None,
@@ -335,7 +414,7 @@ class AnswerService:
             prompt_name=self.config.generation.prompt,
             feedback=feedback,
         )
-        response = self.llm.complete(
+        response = llm.complete(
             prompt.user,
             system=prompt.system,
             model=self.config.generation.model,
@@ -343,3 +422,12 @@ class AnswerService:
             temperature=self.config.generation.temperature,
         )
         return response.text.strip()
+
+
+def _span(tracer: Tracer | None, name: str, **inputs: Any) -> AbstractContextManager[Any]:
+    """A tracer span, or a no-op when the caller is not tracing (evals)."""
+    return tracer.span(name, **inputs) if tracer is not None else nullcontext()
+
+
+def _elapsed_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000

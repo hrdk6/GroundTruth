@@ -30,7 +30,13 @@ from evals.dataset.generate import (
     load_documents,
     split_sections,
 )
-from evals.dataset.schema import TARGET_COUNTS, GoldenDataset, GoldenItem, save_dataset
+from evals.dataset.schema import (
+    TARGET_COUNTS,
+    GoldenDataset,
+    GoldenItem,
+    load_dataset,
+    save_dataset,
+)
 
 log = get_logger(__name__)
 
@@ -45,6 +51,39 @@ def assign_split(item_id: str, dev_fraction: float = DEV_FRACTION) -> str:
     digest = hashlib.sha256(item_id.encode()).hexdigest()
     bucket = int(digest[:8], 16) / 0xFFFFFFFF
     return "dev" if bucket < dev_fraction else "test"
+
+
+def _load_existing(output: str) -> list[GoldenItem]:
+    """Every item already at `output`, curated or not, or nothing."""
+    try:
+        return load_dataset(output, curated_only=False).items
+    except FileNotFoundError:
+        return []
+
+
+def merge_drafts(existing: list[GoldenItem], generated: list[GoldenItem]) -> list[GoldenItem]:
+    """The generated items worth adding to `existing`, with splits assigned.
+
+    Merging, never replacing: the default output is the curated golden set,
+    and a generator run is a source of *drafts*. Writing its output over the
+    file -- which this script used to do -- destroyed every hand-curated item
+    in it. Existing items are never modified; a draft is dropped when its id
+    or its question is already present (different sections can yield the
+    same question).
+    """
+    seen_ids = {item.id for item in existing}
+    seen_questions = {item.question.strip().lower() for item in existing}
+
+    added: list[GoldenItem] = []
+    for item in generated:
+        key = item.question.strip().lower()
+        if item.id in seen_ids or key in seen_questions:
+            continue
+        seen_ids.add(item.id)
+        seen_questions.add(key)
+        item.split = assign_split(item.id)  # type: ignore[assignment]
+        added.append(item)
+    return added
 
 
 def estimate_cost(counts: dict[str, int]) -> float:
@@ -153,25 +192,17 @@ def main(argv: list[str] | None = None) -> int:
             client, sections, count=targets["unanswerable"], model=args.model
         )
 
-    # Deduplicate: different sections can yield the same question.
-    seen: set[str] = set()
-    unique: list[GoldenItem] = []
-    for item in items:
-        key = item.question.strip().lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        item.split = assign_split(item.id)  # type: ignore[assignment]
-        unique.append(item)
-
-    dataset = GoldenDataset(unique)
+    existing = _load_existing(args.output)
+    added = merge_drafts(existing, items)
+    dataset = GoldenDataset(existing + added)
     path = save_dataset(dataset, args.output)
 
-    print(f"\nWrote {len(unique)} uncurated items to {path}")
-    print(f"  by category: {dataset.counts()}")
+    curated = sum(1 for item in existing if item.curated)
+    print(f"\nWrote {path}: kept {len(existing)} existing ({curated} curated), added {len(added)}")
+    print(f"  new by category: {GoldenDataset(added).counts()}")
     print(
-        f"  dev/test:    {sum(1 for i in unique if i.split == 'dev')}/"
-        f"{sum(1 for i in unique if i.split == 'test')}"
+        f"  new dev/test:    {sum(1 for i in added if i.split == 'dev')}/"
+        f"{sum(1 for i in added if i.split == 'test')}"
     )
     print(f"  actual cost: ${client.tracker.cost_usd:.2f}")
     print("\nNext: `python -m evals.dataset.curate` — only curated items are reported.")

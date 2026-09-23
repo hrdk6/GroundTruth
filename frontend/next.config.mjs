@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // The rewrite proxy gives up after 30s by default, and a `full` answer that
+    // regenerates takes longer than that on the free tier: the backend
+    // finished the answer while the browser was shown a 500. One LLM call may
+    // take up to 180s (app/core/llm.py); the proxy should not be what times out.
+    proxyTimeout: 300_000,
+  },
   // The backend runs separately (Docker or `make dev`). Proxying in dev keeps
   // the browser on one origin, so no CORS preflight on every request.
   async rewrites() {

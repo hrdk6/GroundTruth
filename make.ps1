@@ -10,6 +10,7 @@
 .EXAMPLE
     ./make.ps1 up
     ./make.ps1 eval -Config configs/hybrid.yaml -Split dev -Mode retrieval
+    ./make.ps1 compare -A 20260923T120000Z_hybrid -B 20260923T120100Z_hybrid_rerank
 #>
 [CmdletBinding()]
 param(
@@ -19,7 +20,9 @@ param(
     [string]$Config = 'configs/baseline.yaml',
     [string]$Split = 'dev',
     [string]$Mode = 'retrieval',
-    [string]$M = 'migration'
+    [string]$M = 'migration',
+    [string]$A = '',
+    [string]$B = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,6 +81,7 @@ switch ($Target) {
             @('check', 'Everything CI runs'),
             @('ingest', 'Ingest the corpus'),
             @('eval', 'Run an evaluation'),
+            @('compare', 'Paired comparison of two runs: ./make.ps1 compare -A <id> -B <id>'),
             @('results', 'Regenerate the README results table'),
             @('clean', 'Remove caches and build artifacts')
         ) | ForEach-Object { '  {0,-12} {1}' -f $_[0], $_[1] } | Write-Host
@@ -117,6 +121,7 @@ switch ($Target) {
     }
     'ingest' { Invoke-Backend @('python', '-m', 'app.ingestion.run', '--config', "../$Config") }
     'eval' { Invoke-Backend @('python', '-m', 'evals.runner', '--config', "../$Config", '--split', $Split, '--mode', $Mode) }
+    'compare' { Invoke-Backend @('python', '-m', 'evals.compare', $A, $B) }
     'results' { Invoke-Backend @('python', '../scripts/generate_results_table.py') }
     'clean' {
         Get-ChildItem -Path $RepoRoot -Include '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache' -Recurse -Directory -ErrorAction SilentlyContinue |

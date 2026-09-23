@@ -14,24 +14,42 @@
 # red build green is how a regression gate becomes decoration.
 
 dataset: fixture_golden.jsonl
-config: configs/hybrid.yaml
+# The gate guards the retrieval that ships: `full` runs hybrid_bm25's
+# retrieval plus query rewriting and decomposition, which need a model and so
+# cannot run in CI. It used to point at `hybrid`; after the audit, `hybrid`
+# (any-term lexical ranked by ts_rank_cd, which has no IDF) is a measured
+# losing variant -- 0.6667 recall@5 on this fixture, and the gate caught it.
+# Moving the gate to the shipping config lowered no floor. EXPERIMENTS.md,
+# "BM25", has the comparison.
+config: configs/hybrid_bm25.yaml
 split: all
 mode: retrieval
 
-# Measured on 2026-09-23 with configs/hybrid.yaml over the fixture corpus:
-#   recall@5 0.8333 · recall@10 0.8333 · MRR 0.8333 · nDCG@10 0.8333
-# Floors sit ~0.08 below the observed values. With only 8 fixture items one
-# item is worth 0.125, so this tolerates nothing silently but will not fail on
-# a tie-break reordering.
+# Measured on 2026-09-23 with configs/hybrid_bm25.yaml over the fixture corpus
+# (6 scored items), after the measurement audit:
+#   recall@5 1.0000 · recall@10 1.0000 · MRR 0.8333 · every category 1.0000
+# The floors below predate the audit and were set against numbers the audit
+# found to be mismeasured (recall@10 over a five-chunk context, among others).
+# They still hold, so they stay: raising them to the new values would make the
+# gate fail on a single tie-break with 6 items, where one item is 0.167.
 metrics:
   recall@5: 0.75
   recall@10: 0.75
   mrr: 0.70
   ndcg@10: 0.70
 
+# Every gold quote must be matchable by at least one chunk of its page. This is
+# not a quality bar; it is a precondition for the numbers above to mean
+# anything. It exists because the first `fixed` chunker lowercased chunk text
+# and only 8 of 26 golden quotes could match it -- see EXPERIMENTS.md.
+integrity:
+  recall_ceiling: 1.0
+
 # Per-category floors catch a change that lifts the average while destroying
-# one category -- exactly what a chunker change can do to table_or_code.
-# Observed: exact_term 1.000 (n=2), table_or_code 1.000 (n=1), factual 0.667 (n=3).
+# one category -- exactly what a chunker change can do to table_or_code, and
+# exactly what `hybrid` did (table_or_code 1.000 -> 0.000).
+# Observed with hybrid_bm25: exact_term 1.000 (n=2), table_or_code 1.000 (n=1),
+# factual 1.000 (n=3).
 # The fixture set has no version_sensitive item, so no floor is set for it --
 # a floor on a category with no items would pass vacuously.
 by_category:

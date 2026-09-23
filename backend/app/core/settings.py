@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     gt_log_format: str = "console"
     gt_llm_cache_dir: str = ".cache/llm"
     gt_llm_cache_enabled: bool = True
+    # Concurrent model calls per request (claim verification fans out one
+    # call per sentence). Environment, not experiment: it changes latency and
+    # nothing else, since every call is cached under its own prompt.
+    gt_llm_max_concurrency: int = Field(default=4, ge=1, le=32)
+
+    # --- API ----------------------------------------------------------------
+    # The pipeline `/query` runs when the caller names none. `full` is the
+    # shipping configuration; `baseline` exists to be beaten, and serving it by
+    # default would hide verification and conflict notes behind a dropdown.
+    gt_default_config: str = "full"
+    # Origins allowed to call the API from a browser.
+    gt_cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    # Shared secret for admin endpoints (`POST /ingest`). Unset disables them:
+    # an endpoint that re-embeds the corpus should not be open by default.
+    gt_admin_token: SecretStr | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
