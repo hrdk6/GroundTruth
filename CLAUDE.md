@@ -89,14 +89,22 @@ automatically — there is no `activate` step.
 - **Database connect timeout is 3s** (`CONNECT_TIMEOUT_SECONDS` in
   `app/core/db.py`). Without it, "Postgres isn't running" makes `/health` hang
   for ~4 minutes while psycopg retries every resolved address.
-- **Patch scripts on Windows: write with `newline="
-"`.** `Path.write_text`
-  translates to CRLF; `.gitattributes` normalizes on commit, but the working
-  copy churns and a heredoc-embedded `
-` becomes a real newline.
+- **Patch scripts on Windows: pass `newline="\n"` to `write_text`.** It
+  otherwise writes CRLF; `.gitattributes` normalizes on commit, but the working
+  copy churns. And inside a quoted heredoc, a Python string holding a doubled
+  backslash-n becomes a *real* newline in the patched file — which is how this
+  very bullet was once mangled. Prefer the Edit tool for anything with escapes.
 - The repo lives under **OneDrive** on the dev machine. `.venv/`,
   `node_modules/`, and `data/raw/` are gitignored, which also keeps them out of
   sync churn — do not move caches outside those paths.
+- **`.gitignore` patterns match at any depth unless anchored.** A bare
+  `models/` once hid `backend/app/models/` (the ORM package) from every commit.
+  Anchor root-only patterns with a leading `/`, and check new ignores with
+  `git check-ignore -v <path>`.
+- **After a killed session, `make db-local` can time out** while Postgres runs
+  crash recovery (it retries an fsync of pgserver's own log file for 30s).
+  Wait, then run it again: it picks up the running server and rewrites the port
+  in `.env`.
 
 ## Anthropic API facts worth not rediscovering
 
@@ -118,10 +126,15 @@ These bit us once; they are encoded in `app/core/llm.py`.
 
 ## Where the project actually stands
 
-**Everything runs and is measured. Total LLM spend: $0.00.** Nine experiments
-in `experiments/`, covering retrieval and generation. `hybrid` is the best
-retrieval config; `full` is the shipping pipeline. Read `EXPERIMENTS.md` before
-changing anything in the retrieval path.
+**Everything runs, is measured, and was audited. Total LLM spend: $0.00.** The
+records in `experiments/` are all from clean trees after the measurement audit;
+the pre-audit ones are in `experiments/superseded/` and must not be quoted as
+results. `full` is the shipping pipeline (hybrid retrieval with BM25 lexical
+ranking, rewrite, decomposition, verification). The honest summary: **no
+retrieval variant is distinguishable from noise on this golden set** — the only
+distinguishable effect is the audit's correction of the baseline. Read
+`EXPERIMENTS.md` before changing anything in the retrieval path, and use
+`make compare` before claiming any difference.
 
 **The one real gap: the judge is the model it judges.** `GT_GENERATION_MODEL`
 and `GT_CHEAP_MODEL` are both `nvidia/nemotron-3-super-120b-a12b`, so
@@ -135,9 +148,12 @@ Running things again:
 ```bash
 make db-local && make migrate          # Postgres + pgvector, no Docker
 make llm-check                         # verify provider before a long run
-cd backend && uv run python -m app.ingestion.run   --config ../configs/hybrid.yaml --versions 1.26 1.30 --include concepts tasks
+(cd backend && uv run python -m app.ingestion.run --config ../configs/full.yaml \
+    --versions 1.26 1.30 --include concepts tasks)
 make eval CONFIG=configs/full.yaml SPLIT=dev MODE=full
+make compare A=<id> B=<id>             # paired, with intervals -- before any claim
 make results                           # regenerate the README table
+(cd backend && uv run python ../scripts/experiment_tables.py)   # EXPERIMENTS.md tables
 ```
 
 Free-tier realities that cost time to learn:

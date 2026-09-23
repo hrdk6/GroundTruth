@@ -81,8 +81,8 @@ single store means one migration path, one backup, version filtering in the
 same SQL statement as the search, and no cross-store consistency problem. (That
 filter is *not* a pre-filter under HNSW on pgvector < 0.8 — the assumption this
 entry originally made. See D16.)
-ParadeDB's `pg_search` is the upgrade path if lexical recall proves to be the
-bottleneck; that would be an experiment, not an assumption.
+ParadeDB's `pg_search` was named as the upgrade path; D18 gets real BM25 in
+plain SQL instead, because `pgserver` cannot load extensions it does not ship.
 
 ### D2 — Local embedding and reranking models
 
@@ -356,3 +356,28 @@ delta on a shared tracker billed each concurrent request for its neighbours.
 
 **Trade-off.** A failed query costs one extra small write. `POST /ingest`
 exists for the spec, but is off unless `GT_ADMIN_TOKEN` is set.
+
+### D18 — BM25 computed in SQL, not an extension
+
+**Context.** The lexical leg ranked with `ts_rank_cd`, which has no IDF. Once
+it matched any question term (it first required all of them, and matched
+nothing for 20 of 32 golden questions), chunks repeating common words
+outranked the one holding the rare, decisive term: a ConfigMap-size question
+lost its gold chunk from rank 1 to 9. D1 named ParadeDB `pg_search` as the
+upgrade path — but `pgserver` cannot load extensions it does not ship.
+
+**Choice.** `lexical.ranking: bm25` computes Okapi BM25 in one statement over
+exactly the filtered chunk set: `N` and mean length from the scope, document
+frequency from a GIN-backed `@@` count per query term, term frequency from
+`unnest(tsv)`. A test recomputes every score with an independent Python BM25
+over the same tsvectors and requires agreement to 1e-9.
+
+**Trade-off.** About twice `ts_rank_cd`'s cost (40–60 ms per query here), and
+two approximations: length is the count of *distinct* lexemes, and Postgres
+caps positions per lexeme at 256, which caps `tf` long after BM25 has
+saturated. Bought: IDF with no new infrastructure, statistics that are always
+consistent with the version and chunk-set filters (a precomputed table would
+have to be kept in step with every ingest), and a ranker that is inspectable
+in one query. On the golden set it is within noise of everything else; it is
+shipped because it fixes the fixture regression and the IDF argument, not
+because of a golden-set win.
