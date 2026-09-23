@@ -534,3 +534,41 @@ def test_dense_search_returns_k_even_when_filters_reject_most_of_the_index(
 
     assert len(hits) == k
     assert {c.version for c in hits} == {"1.26"}
+
+
+def test_any_term_lexical_matches_a_natural_question(ingested, db_session, config) -> None:
+    """Regression: all-terms matching returned nothing for most real questions.
+
+    One word no chunk contains is enough to empty an all-terms query -- which
+    is what a natural-language question's filler words did in practice.
+    """
+    question = "Which setting controls the group ID container processes run as, zyzzyva?"
+    any_config = config.model_copy(
+        update={
+            "retrieval": config.retrieval.model_copy(
+                update={"lexical": config.retrieval.lexical.model_copy(update={"match": "any"})}
+            )
+        }
+    )
+    all_config = config.model_copy(
+        update={
+            "retrieval": config.retrieval.model_copy(
+                update={"lexical": config.retrieval.lexical.model_copy(update={"match": "all"})}
+            )
+        }
+    )
+    assert lexical_search(db_session, question, all_config, version="1.28") == []
+    assert lexical_search(db_session, question, any_config, version="1.28")
+
+
+def test_a_flag_in_the_question_is_not_read_as_negation(ingested, db_session, config) -> None:
+    """websearch_to_tsquery reads `-o` as NOT 'o'; the any-term query never negates."""
+    any_config = config.model_copy(
+        update={
+            "retrieval": config.retrieval.model_copy(
+                update={"lexical": config.retrieval.lexical.model_copy(update={"match": "any"})}
+            )
+        }
+    )
+    with_flag = lexical_search(db_session, "runAsGroup -o", any_config, version="1.28")
+    assert any("runAsGroup" in c.text for c in with_flag)

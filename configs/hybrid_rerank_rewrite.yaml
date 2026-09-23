@@ -30,7 +30,7 @@ embedding:
 
 retrieval:
   dense: {enabled: true, k: 20}
-  lexical: {enabled: true, k: 20, text_search_config: english}
+  lexical: {enabled: true, k: 20, text_search_config: english, match: any}
   fusion: {enabled: true, rrf_k: 60}
   rerank: {enabled: true, model: BAAI/bge-reranker-base, batch_size: 32}
   query_rewrite: {enabled: true, keep_original_for_lexical: true}

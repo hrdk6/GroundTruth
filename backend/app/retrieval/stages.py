@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import Float, Select, and_, bindparam, cast, func, literal, select, text
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import BindParameter
 
 from app.core.logging import get_logger
 from app.core.pipeline import PipelineConfig
@@ -141,9 +142,10 @@ def lexical_search(
     """Postgres full-text search ranked by `ts_rank_cd`.
 
     This is BM25-*like*, not BM25: `ts_rank_cd` weights cover density and term
-    frequency but has neither IDF saturation nor document-length normalization.
-    Documented in docs/LIMITATIONS.md (L2); ParadeDB `pg_search` is the upgrade
-    path if lexical recall turns out to be the bottleneck.
+    frequency, has no IDF at all, and -- called without a normalization flag,
+    as here -- no document-length normalization either. Documented in
+    docs/LIMITATIONS.md (L2); Postgres's length-normalization flags are the
+    cheap next experiment, ParadeDB `pg_search` the real upgrade.
     """
     limit = k or config.retrieval.lexical.k
     regconfig = config.retrieval.lexical.text_search_config
@@ -152,15 +154,28 @@ def lexical_search(
     if not cleaned:
         return []
 
-    # websearch_to_tsquery tolerates arbitrary user input (quotes, operators,
-    # punctuation) instead of raising the way to_tsquery does.
-    #
     # The config name must be cast to `regconfig`: passed as a plain string it
     # binds as varchar, and Postgres has no
     # websearch_to_tsquery(varchar, varchar) overload.
-    tsquery = func.websearch_to_tsquery(
-        cast(literal(regconfig), REGCONFIG), bindparam("q", cleaned)
-    )
+    language = cast(literal(regconfig), REGCONFIG)
+    question: BindParameter[str] = bindparam("q", cleaned)
+
+    if config.retrieval.lexical.match == "any":
+        # OR together the question's own lexemes, stemmed by the same config
+        # that built `tsv`. Built from `to_tsvector` output, so user text is
+        # never parsed as query syntax: nothing can be negated, and nothing
+        # can fail to parse.
+        tsquery = func.to_tsquery(
+            language,
+            func.array_to_string(
+                func.tsvector_to_array(func.to_tsvector(language, question)), " | "
+            ),
+        )
+    else:
+        # websearch_to_tsquery tolerates arbitrary input instead of raising
+        # the way to_tsquery does -- but ANDs every term and reads a leading
+        # `-` as NOT. See LexicalConfig.match.
+        tsquery = func.websearch_to_tsquery(language, question)
     rank = func.ts_rank_cd(Chunk.tsv, tsquery).cast(Float).label("rank")
 
     statement = (
@@ -179,9 +194,8 @@ def lexical_search(
 
 
 def _to_tsquery_input(text: str) -> str:
-    """Strip characters that make websearch_to_tsquery return an empty query."""
-    cleaned = " ".join(text.split())
-    return cleaned.strip()
+    """Collapse whitespace; an empty question skips the query entirely."""
+    return " ".join(text.split())
 
 
 # ---------------------------------------------------------------------------

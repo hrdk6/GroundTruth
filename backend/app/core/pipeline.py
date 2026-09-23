@@ -106,6 +106,14 @@ class LexicalConfig(_Frozen):
     # stops matching plurals and inflections. Supporting another language
     # means a migration, not a config edit.
     text_search_config: Literal["english"] = "english"
+    # How question terms combine. `all` is `websearch_to_tsquery`: every term
+    # must match, and a leading `-` means NOT -- right for a search box, wrong
+    # for a retrieval leg. A natural-language question rarely has every one of
+    # its words in one chunk (20 of the 32 golden questions matched nothing),
+    # and `kubectl get pods -n x` excluded every chunk mentioning `n`. `any`
+    # ORs the question's own lexemes and lets `ts_rank_cd` rank by overlap,
+    # which is what BM25-style retrieval does.
+    match: Literal["all", "any"] = "all"
 
 
 class FusionConfig(_Frozen):
@@ -149,6 +157,11 @@ class RetrievalConfig(_Frozen):
             raise ValueError("retrieval needs at least one of dense/lexical enabled")
         if self.fusion.enabled and not (self.dense.enabled and self.lexical.enabled):
             raise ValueError("fusion requires both dense and lexical to be enabled")
+        if self.dense.enabled and self.lexical.enabled and not self.fusion.enabled:
+            # Without fusion the two lists would be merged by raw score, and a
+            # cosine similarity (0-1) against a ts_rank_cd (unbounded) is not
+            # a comparison -- whichever scale is larger would win every time.
+            raise ValueError("dense + lexical needs fusion: their scores are not comparable")
         return self
 
 

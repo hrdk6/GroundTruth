@@ -42,7 +42,14 @@ END_MARKER = "<!-- RESULTS_TABLE_END -->"
 EMPTY_MESSAGE = "No experiments recorded yet. Run `make eval` and then `make results`."
 
 # The order experiments were run in, so the table reads as a progression.
-CONFIG_ORDER = ["baseline", "structure_aware", "hybrid", "hybrid_rerank", "full"]
+CONFIG_ORDER = [
+    "baseline",
+    "structure_aware",
+    "hybrid_all_terms",
+    "hybrid",
+    "hybrid_rerank",
+    "full",
+]
 SPLIT_ORDER = ["dev", "test", "all"]
 
 # (json key in metrics, column header, show a confidence interval)

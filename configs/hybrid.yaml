@@ -8,6 +8,11 @@
 #
 # Fusion is RRF rather than a weighted score sum: cosine similarity (0-1) and
 # ts_rank_cd (unbounded) are not comparable, so only rank is meaningful.
+#
+# The lexical leg matches on ANY of the question's terms (`match: any`). The
+# first version of this experiment used websearch_to_tsquery, which requires
+# ALL of them and matched nothing for 20 of the 32 golden questions --
+# `hybrid_all_terms.yaml` keeps that behaviour so the difference is measured.
 name: hybrid
 description: >
   structure_aware chunking with dense + Postgres full-text retrieval combined
@@ -28,7 +33,7 @@ embedding:
 
 retrieval:
   dense: {enabled: true, k: 20}
-  lexical: {enabled: true, k: 20, text_search_config: english}
+  lexical: {enabled: true, k: 20, text_search_config: english, match: any}
   fusion: {enabled: true, rrf_k: 60}
   rerank: {enabled: false}
   query_rewrite: {enabled: false}

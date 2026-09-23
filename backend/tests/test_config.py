@@ -176,3 +176,28 @@ def test_api_key_is_not_printed_in_repr() -> None:
     s = Settings(_env_file=None, anthropic_api_key="sk-ant-secret-value")  # type: ignore[call-arg]
     assert "sk-ant-secret-value" not in repr(s)
     assert s.has_anthropic_key
+
+
+def test_dense_plus_lexical_without_fusion_is_rejected() -> None:
+    """Merging by raw score would compare cosine similarity against ts_rank_cd."""
+    with pytest.raises(ValidationError, match="fusion"):
+        PipelineConfig(
+            name="x",
+            retrieval={"lexical": {"enabled": True}, "fusion": {"enabled": False}},  # type: ignore[arg-type]
+        )
+
+
+def test_hybrid_configs_match_any_term_and_the_ablation_keeps_all() -> None:
+    for name in ("hybrid", "hybrid_rerank", "full"):
+        assert load_config(name).retrieval.lexical.match == "any", name
+    ablation = load_config("hybrid_all_terms")
+    assert ablation.retrieval.lexical.match == "all"
+    # One variable: everything else is hybrid's.
+    hybrid = load_config("hybrid").model_dump()
+    other = ablation.model_dump()
+    hybrid["retrieval"]["lexical"].pop("match")
+    other["retrieval"]["lexical"].pop("match")
+    for key in ("name", "description"):
+        hybrid.pop(key)
+        other.pop(key)
+    assert hybrid == other

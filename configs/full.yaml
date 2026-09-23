@@ -32,7 +32,7 @@ embedding:
 
 retrieval:
   dense: {enabled: true, k: 20}
-  lexical: {enabled: true, k: 20, text_search_config: english}
+  lexical: {enabled: true, k: 20, text_search_config: english, match: any}
   fusion: {enabled: true, rrf_k: 60}
   # Measured harmful in the hybrid_rerank experiment; see EXPERIMENTS.md.
   rerank: {enabled: false}
