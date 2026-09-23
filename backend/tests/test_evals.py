@@ -894,3 +894,23 @@ def test_conflicts_are_checked_only_for_the_sections_the_answer_cites(
 
     service._generate_and_verify(None, "q", retrieval, decision, llm=llm_client)  # type: ignore[arg-type]
     assert checked == [2]
+
+
+def test_the_judge_never_sees_citation_markers(llm_client) -> None:  # type: ignore[no-untyped-def]
+    """Regression: `.spec.revisionHistoryLimit[1][2]` was docked for "incorrect indices"."""
+    from evals.judge.judge import judge_answer, strip_citations
+    from tests.conftest import FakeProvider
+
+    assert strip_citations(".spec.revisionHistoryLimit[1][2]") == ".spec.revisionHistoryLimit"
+    assert strip_citations("It is beta 【2】.") == "It is beta."
+
+    fake = FakeProvider(text='{"score": 5, "pass": true, "reason": "ok"}')
+    llm_client._client = fake
+    judge_answer(
+        llm_client,
+        question="Which field?",
+        reference_answer="`.spec.revisionHistoryLimit`",
+        answer=".spec.revisionHistoryLimit[1][2]",
+    )
+    prompt = str(fake.calls[0]["prompt"])
+    assert "[1]" not in prompt and ".spec.revisionHistoryLimit" in prompt
