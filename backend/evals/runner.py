@@ -75,14 +75,20 @@ def git_sha() -> str | None:
         return None
 
 
-def git_is_dirty() -> bool:
-    """A result from a dirty tree is not reproducible; the record says so."""
+def git_is_dirty(root: Path = REPO_ROOT) -> bool:
+    """A result from a dirty tree is not reproducible; the record says so.
+
+    `experiments/` is excluded. Every run writes a new file there, untracked
+    until committed, so without the exclusion each run after the first in a
+    batch recorded itself as dirty -- because of the previous run's *output*,
+    which cannot change anything the next run computes.
+    """
     try:
         result = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--", ".", ":(exclude)experiments"],
             capture_output=True,
             text=True,
-            cwd=REPO_ROOT,
+            cwd=root,
             timeout=10,
             check=False,
         )

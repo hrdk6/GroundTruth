@@ -826,3 +826,34 @@ def test_retrieval_only_success_is_never_a_generation_failure() -> None:
         generation_ran=False,
     )
     assert result.failure == "none"
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility bookkeeping
+# ---------------------------------------------------------------------------
+def test_experiment_output_does_not_make_the_tree_dirty(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Regression: each run's own output file marked the *next* run dirty."""
+    import shutil
+    import subprocess
+
+    from evals.runner import git_is_dirty
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / "code.py").write_text("x = 1\n", encoding="utf-8")
+    git("add", "code.py")
+    git("commit", "-q", "-m", "init")
+
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "run.json").write_text("{}", encoding="utf-8")
+    assert not git_is_dirty(tmp_path), "an experiment record is output, not a change"
+
+    (tmp_path / "code.py").write_text("x = 2\n", encoding="utf-8")
+    assert git_is_dirty(tmp_path), "a modified source file is"
