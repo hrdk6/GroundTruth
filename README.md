@@ -3,6 +3,8 @@
 A self-evaluating, version-aware RAG platform over the Kubernetes documentation —
 built so that every claim it makes about itself can be checked.
 
+![The Ask page: a recorded answer read as a test run. Each claim carries its verdict, and the focused claim is pinned by a leader line to the excerpt it cites.](docs/images/ask.png)
+
 > ### Status: measured end to end, audited, $0.00
 >
 > Every number below is generated from a committed record in `experiments/`,
@@ -113,7 +115,7 @@ question → version detect → [rewrite] → [decompose]
 
 Every stage is a config toggle, so an experiment is one line of YAML rather than
 a code change. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the diagrams and
-eighteen recorded decisions, each with its trade-off.
+twenty recorded decisions, each with its trade-off.
 
 Four ideas do most of the work:
 

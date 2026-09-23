@@ -321,3 +321,11 @@ reads, not a query (the results table marks it †). A cold measurement needs
 `GT_LLM_CACHE_ENABLED=false` and a provider fast enough that the number means
 something; on the free tier, one verification call per sentence dominates.
 
+### L26 — The recorded run on the Ask page can go stale
+
+The first screen shows a real answer captured from the API on 23 Sep 2026
+(D20). After a re-ingest, a prompt change, or a new model it may no longer be
+what the live system would say. It is labelled as recorded and dated, but
+nothing checks it against the current pipeline; recapture it (the question is
+in the file) whenever the shipping pipeline changes.
+

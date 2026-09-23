@@ -101,6 +101,9 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
 ## Phase 6 — Frontend  `[x]`
 
 - [x] Ask renders server-side sentence segments with verdicts; defaults to `full`
+- [x] Redesigned as a test report (DESIGN.md): opens on a recorded run a
+      reviewer can check before waiting, with a leader line from each claim
+      to its excerpt and word-level diffs between releases
 - [x] Answers render the Markdown the model writes (code blocks keep their
       line breaks); every page checked at phone width with no horizontal scroll
 - [x] Trace viewer: a real waterfall on one time axis, and a rank trail
@@ -113,7 +116,7 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
 - [x] CI: lint, types, tests, fixture ingest, retrieval eval, gate — all run
       locally end to end against a fresh, migrated database; the gate passes
 - [x] README table generated from `experiments/`; `--check` wired into CI
-- [x] ARCHITECTURE (19 decisions), LIMITATIONS (25 entries), DEMO_SCRIPT
+- [x] ARCHITECTURE (20 decisions), LIMITATIONS (26 entries), DEMO_SCRIPT
 - [x] **A fresh clone installs, lints, type-checks, passes all 256 tests, and
       builds the frontend** — which it could not before the audit, because
       `.gitignore` had kept `backend/app/models/` out of every commit

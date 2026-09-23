@@ -48,14 +48,15 @@ separately. It never silently mixes them."
 
 ## 2 · A verified citation (45s)
 
-Click a citation marker in the answer.
+Click a claim, or its citation marker.
 
-**Point at:** the excerpt panel scrolling to that source and flashing, and the
-small square in the margin of each sentence.
+**Point at:** the leader line redrawing from that claim to the excerpt it
+cites, the verifier's own reason appearing under the claim, and the verdict
+mark in each claim's gutter.
 
-**Say:** "Every sentence carries a mark: filled means a second model pass
-confirmed the cited excerpt supports it, half means partly, hollow means it
-doesn't. An uncited factual sentence counts as unsupported — otherwise the
+**Say:** "Every claim is a case in a test report: solid green means a second
+model pass confirmed the cited excerpt supports it, half amber means partly,
+hollow red means it doesn't. An uncited factual sentence counts as unsupported — otherwise the
 cheapest way to score well would be to stop citing."
 
 Then ask something the docs don't cover:
@@ -68,7 +69,7 @@ the answer it says so instead of guessing."
 
 ## 3 · A trace that explains a result (45s)
 
-Click **See how this answer was produced**.
+Click **See every stage of this run**.
 
 **Point at:** the waterfall — each stage on one time axis — and the
 verification span, usually the longest bar.
@@ -81,7 +82,7 @@ retrieval miss, and the two need completely different fixes."
 
 ## 4 · The evidence — and the bug it caught (60s)
 
-Open **Experiments**. Tick **Show superseded pre-audit runs**. Select the old
+Open **Experiments**. Tick **Include superseded pre-audit runs**. Select the old
 `baseline` (dev, marked *superseded*) and the current `baseline` (dev).
 
 **Point at:** recall@5 **0.286 → 0.857**, and the paired interval marked
@@ -122,7 +123,7 @@ here is more than a judgment call."
 | "Can't reach the API" | backend not running | `make db-local` then `make dev` |
 | 502 with a trace id | the pipeline raised | open the trace: the failing span is red and the error is shown |
 | Model errors or 60s+ latencies | free-tier model unavailable | `make llm-check`; the catalogue lists far more models than it serves |
-| No verification marks | the pipeline selector isn't `full` | switch it back to `full` |
+| Claims read "Not checked" | the pipeline selector isn't `full` | switch it back to `full` |
 | No conflict panel | the question names a version, or the *cited* section didn't change | ask the beat-1 question, without a version |
 | Experiments page is empty | no records | `make eval CONFIG=configs/baseline.yaml` |
 

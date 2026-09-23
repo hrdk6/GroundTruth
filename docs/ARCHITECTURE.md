@@ -403,3 +403,23 @@ differ only in whitespace). Bought: readable answers with no change to a
 single recorded metric. The splitter can still cut *inside* a code block if
 a YAML comment ends in a full stop followed by a capital; that sentence then
 renders with an unclosed fence, as text.
+
+### D20 — The first screen is a recorded run, shipped with the frontend
+
+**Context.** The intended audience is a reviewer opening a public URL alone. A
+cold `full` answer takes 20-60 s on the free tier, so an empty question box
+asked them to wait before they had seen what the system does, and a backend
+that is down or cold showed them nothing at all.
+
+**Choice.** The Ask page opens on one real response to `POST /query`, captured
+verbatim into `frontend/lib/recorded-run.json` with the trace id and timing of
+the cold run that first produced it. It renders through the same report as a
+live answer, labelled as recorded, with its first claim already pinned to its
+excerpt. Asking anything replaces it with a live run.
+
+**Trade-off.** The snapshot is a copy: it can drift from what the live index
+would answer today (LIMITATIONS L26), and its trace link appears only when the
+database it was recorded in is the one being served. Bought: the page proves
+its mechanism in the first viewport without a backend, and nothing on it is
+invented.
+
