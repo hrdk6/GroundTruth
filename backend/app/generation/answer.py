@@ -343,9 +343,14 @@ class AnswerService:
             and decision.version
         ):
             started = time.perf_counter()
+            # Only the sections the answer actually cites. Checking the whole
+            # context attached "this differs in other versions" notes about
+            # excerpts the answer never used -- a warning about nothing the
+            # reader was told.
+            cited = [candidates[c.marker - 1] for c in citations]
             conflicts = detect_conflicts(
                 session,
-                candidates,
+                cited,
                 chunker_name=self.config.chunker_name,
                 answer_version=decision.version,
                 all_versions=indexed_versions(session, self.config.chunker_name),

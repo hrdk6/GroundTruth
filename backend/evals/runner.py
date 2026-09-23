@@ -276,6 +276,10 @@ def evaluate(
     settings = get_settings()
     items = dataset.items[:limit] if limit else dataset.items
     k_final = config.retrieval.k_final
+    # Captured before the run, not after: a generation eval takes minutes, and
+    # a commit or an edit made meanwhile would otherwise stamp the record with
+    # a SHA -- or a clean flag -- the code that ran never had.
+    sha, dirty = git_sha(), git_is_dirty()
 
     # Audit the gold before scoring anything: a quote no chunk can contain is
     # a guaranteed miss, and the metric would be measuring the index.
@@ -426,8 +430,8 @@ def evaluate(
         "dataset_version": dataset.version,
         "dataset_size": len(items),
         "version_hint": version_hint,
-        "git_sha": git_sha(),
-        "git_dirty": git_is_dirty(),
+        "git_sha": sha,
+        "git_dirty": dirty,
         "config": config.to_record(),
         "environment": {
             "python": platform.python_version(),
@@ -475,7 +479,9 @@ def write_record(record: dict[str, Any], config_name: str) -> Path:
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = EXPERIMENTS_DIR / f"{stamp}_{config_name}.json"
-    path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    # LF explicitly: records are committed, and .gitattributes normalizes them.
+    body = json.dumps(record, indent=2, ensure_ascii=False) + "\n"
+    path.write_text(body, encoding="utf-8", newline="\n")
     return path
 
 

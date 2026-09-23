@@ -857,3 +857,40 @@ def test_experiment_output_does_not_make_the_tree_dirty(tmp_path) -> None:  # ty
 
     (tmp_path / "code.py").write_text("x = 2\n", encoding="utf-8")
     assert git_is_dirty(tmp_path), "a modified source file is"
+
+
+# ---------------------------------------------------------------------------
+# Conflict notes
+# ---------------------------------------------------------------------------
+def test_conflicts_are_checked_only_for_the_sections_the_answer_cites(
+    llm_client, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    """Regression: every context chunk was checked, so an answer got version
+    notes about excerpts it never used."""
+    from app.core.pipeline import load_config
+    from app.generation import answer as answer_module
+    from app.retrieval.versioning import VersionDecision
+    from tests.conftest import FakeProvider
+
+    checked: list[int] = []
+
+    def fake_detect(session, candidates, **kwargs):  # type: ignore[no-untyped-def]
+        checked.extend(c.chunk_id for c in candidates)
+        return []
+
+    monkeypatch.setattr(answer_module, "detect_conflicts", fake_detect)
+    monkeypatch.setattr(answer_module, "indexed_versions", lambda session, name: ["1.26", "1.30"])
+    llm_client._client = FakeProvider(text="The kubelet restarts the container [2].")
+
+    config = load_config("hybrid")
+    config = config.model_copy(
+        update={"versioning": config.versioning.model_copy(update={"conflict_detection": True})}
+    )
+    service = answer_module.AnswerService(config, llm_client=llm_client)
+    retrieval = RetrievalResult(
+        candidates=[make_candidate(1), make_candidate(2), make_candidate(3)], query="q"
+    )
+    decision = VersionDecision("1.30", explicit=False)
+
+    service._generate_and_verify(None, "q", retrieval, decision, llm=llm_client)  # type: ignore[arg-type]
+    assert checked == [2]
