@@ -47,6 +47,7 @@ CONFIG_ORDER = [
     "structure_aware",
     "hybrid_all_terms",
     "hybrid",
+    "hybrid_bm25",
     "hybrid_rerank",
     "full",
 ]

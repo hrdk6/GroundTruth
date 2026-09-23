@@ -114,6 +114,13 @@ class LexicalConfig(_Frozen):
     # ORs the question's own lexemes and lets `ts_rank_cd` rank by overlap,
     # which is what BM25-style retrieval does.
     match: Literal["all", "any"] = "all"
+    # How matching chunks are ordered. `ts_rank_cd` has no IDF, so once any
+    # term may match, a chunk repeating a common word ("data", "default")
+    # outranks the one holding the rare, decisive term. `bm25` is Okapi BM25
+    # computed in SQL over the filtered chunk set (see `stages.py`).
+    ranking: Literal["ts_rank_cd", "bm25"] = "ts_rank_cd"
+    bm25_k1: float = Field(default=1.2, gt=0.0, le=3.0)
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)
 
 
 class FusionConfig(_Frozen):

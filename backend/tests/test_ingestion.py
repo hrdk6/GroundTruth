@@ -104,6 +104,35 @@ def test_distinct_shortcode_headings_give_distinct_heading_paths(
     assert {c.heading_path for c in chunks} == {"T > Before you begin", "T > What's next"}
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected", "absent"),
+    [
+        ("Text <!-- TODO: fix --> after.", "Text  after.", "TODO"),
+        ("Before.\n<!--\nUPDATE THIS\nWHEN PROMOTING\n-->\nAfter.", "After.", "PROMOTING"),
+        ("<!-- steps -->\n\nReal step.", "Real step.", "steps"),
+    ],
+)
+def test_html_comments_are_dropped(raw: str, expected: str, absent: str) -> None:
+    """They never render, and they were contributor notes a model could cite."""
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert expected in doc.text
+    assert absent not in doc.text
+    assert "<!--" not in doc.text
+
+
+def test_html_comments_inside_code_blocks_are_kept() -> None:
+    raw = "Example:\n\n```html\n<!-- keep me: this is the example -->\n<p>hi</p>\n```"
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert "<!-- keep me: this is the example -->" in doc.text
+
+
+def test_a_fence_inside_a_comment_is_commented_out() -> None:
+    raw = "Intro.\n<!--\n```yaml\nold: example\n```\n-->\nAfter."
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert "old: example" not in doc.text
+    assert "After." in doc.text
+
+
 def test_relative_doc_links_become_absolute() -> None:
     raw = "See [the pod docs](/docs/concepts/workloads/pods/) for more."
     doc = parse_markdown(raw, source_path="a.md", version="1.28")

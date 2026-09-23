@@ -637,3 +637,80 @@ def test_the_runner_writes_a_complete_honest_record(ingested, db_session, config
     # No version was passed, so every item's version came from detection or
     # the latest-version default -- here the fixture's newest, 1.28.
     assert {i["version_used"] for i in answerable} == {"1.28"}
+
+
+def _with_lexical(config: PipelineConfig, **changes: object) -> PipelineConfig:
+    lexical = config.retrieval.lexical.model_copy(update=changes)
+    return config.model_copy(
+        update={"retrieval": config.retrieval.model_copy(update={"lexical": lexical})}
+    )
+
+
+def test_bm25_in_sql_matches_a_reference_implementation(ingested, db_session, config) -> None:
+    """The SQL BM25 agrees with a from-scratch Python BM25 over the same tsvectors.
+
+    Hand-written ranking SQL is exactly the kind of code that is plausibly
+    wrong, so this recomputes N, avg length, df and tf in Python from the
+    unnested tsvectors and checks every returned score.
+    """
+    import math
+
+    bm25 = _with_lexical(config, match="any", ranking="bm25")
+    question = "Which field sets the user ID that container processes run as?"
+    hits = lexical_search(db_session, question, bm25, version="1.28", k=10)
+    assert hits
+
+    rows = db_session.execute(
+        text(
+            "SELECT c.id, e.lexeme, coalesce(array_length(e.positions, 1), 1) AS tf "
+            "FROM chunks c JOIN documents d ON d.id = c.document_id, "
+            "LATERAL unnest(c.tsv) AS e(lexeme, positions, weights) "
+            "WHERE c.chunker_name = :n AND c.version = '1.28' AND d.deleted_at IS NULL"
+        ),
+        {"n": config.chunker_name},
+    ).all()
+    terms = set(
+        db_session.execute(
+            text("SELECT unnest(tsvector_to_array(to_tsvector('english', :q)))"), {"q": question}
+        ).scalars()
+    )
+
+    tf: dict[int, dict[str, int]] = {}
+    for chunk_id, lexeme, count in rows:
+        tf.setdefault(chunk_id, {})[lexeme] = count
+    # N and the mean length are over the whole scope, including any chunk with
+    # no lexemes at all (unnest yields no rows for those).
+    n, avg_len = db_session.execute(
+        text(
+            "SELECT count(*), avg(length(c.tsv)) FROM chunks c "
+            "JOIN documents d ON d.id = c.document_id "
+            "WHERE c.chunker_name = :n AND c.version = '1.28' AND d.deleted_at IS NULL"
+        ),
+        {"n": config.chunker_name},
+    ).one()
+    avg_len = float(avg_len)
+    df = {t: sum(1 for v in tf.values() if t in v) for t in terms}
+    k1, b = bm25.retrieval.lexical.bm25_k1, bm25.retrieval.lexical.bm25_b
+
+    def reference(chunk_id: int) -> float:
+        doc = tf[chunk_id]
+        return sum(
+            math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
+            * doc[t]
+            * (k1 + 1)
+            / (doc[t] + k1 * (1 - b + b * len(doc) / avg_len))
+            for t in terms
+            if t in doc
+        )
+
+    for hit in hits:
+        assert hit.scores["lexical"] == pytest.approx(reference(hit.chunk_id), rel=1e-9)
+    ordered = sorted(tf, key=lambda c: (-reference(c), c))[: len(hits)]
+    assert [h.chunk_id for h in hits] == ordered
+
+
+def test_bm25_prefers_the_rare_term_over_repeated_common_ones(ingested, db_session, config) -> None:
+    """The reason BM25 exists here: `ts_rank_cd` has no IDF."""
+    bm25 = _with_lexical(config, match="any", ranking="bm25")
+    hits = lexical_search(db_session, "pod container runAsGroup", bm25, version="1.28", k=3)
+    assert "runAsGroup" in hits[0].text

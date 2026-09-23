@@ -139,13 +139,12 @@ def lexical_search(
     version: str | None = None,
     k: int | None = None,
 ) -> list[Candidate]:
-    """Postgres full-text search ranked by `ts_rank_cd`.
+    """Postgres full-text search, ranked by `ts_rank_cd` or by BM25.
 
-    This is BM25-*like*, not BM25: `ts_rank_cd` weights cover density and term
+    `ts_rank_cd` is BM25-*like*, not BM25: it weights cover density and term
     frequency, has no IDF at all, and -- called without a normalization flag,
-    as here -- no document-length normalization either. Documented in
-    docs/LIMITATIONS.md (L2); Postgres's length-normalization flags are the
-    cheap next experiment, ParadeDB `pg_search` the real upgrade.
+    as here -- no document-length normalization either (docs/LIMITATIONS.md,
+    L2). `lexical.ranking: bm25` computes Okapi BM25 instead; see `_bm25`.
     """
     limit = k or config.retrieval.lexical.k
     regconfig = config.retrieval.lexical.text_search_config
@@ -153,6 +152,9 @@ def lexical_search(
     cleaned = _to_tsquery_input(query_text)
     if not cleaned:
         return []
+
+    if config.retrieval.lexical.ranking == "bm25":
+        return _bm25(session, cleaned, config, version=version, limit=limit)
 
     # The config name must be cast to `regconfig`: passed as a plain string it
     # binds as varchar, and Postgres has no
@@ -196,6 +198,107 @@ def lexical_search(
 def _to_tsquery_input(text: str) -> str:
     """Collapse whitespace; an empty question skips the query entirely."""
     return " ".join(text.split())
+
+
+# Matching chunks are the ones `lexical.match` admits; scoring always uses the
+# question's own lexemes. `{match}` is one of the two fixed expressions below,
+# never user input.
+_MATCH_ANY = (
+    "to_tsquery(CAST(:language AS regconfig), array_to_string("
+    "tsvector_to_array(to_tsvector(CAST(:language AS regconfig), :question)), ' | '))"
+)
+_MATCH_ALL = "websearch_to_tsquery(CAST(:language AS regconfig), :question)"
+
+_BM25_SQL = """
+WITH terms AS (
+    SELECT DISTINCT lexeme
+    FROM unnest(tsvector_to_array(to_tsvector(CAST(:language AS regconfig), :question))) AS lexeme
+),
+scope AS (
+    SELECT c.id, c.tsv
+    FROM chunks c
+    JOIN documents d ON d.id = c.document_id
+    WHERE c.chunker_name = :chunker_name
+      AND d.deleted_at IS NULL
+      AND (CAST(:version AS text) IS NULL OR c.version = CAST(:version AS text))
+),
+corpus AS (
+    SELECT count(*)::float8 AS n, greatest(avg(length(tsv)), 1)::float8 AS avg_len FROM scope
+),
+df AS (
+    SELECT t.lexeme, count(*)::float8 AS df
+    FROM terms t
+    JOIN scope s ON s.tsv @@ quote_literal(t.lexeme)::tsquery
+    GROUP BY t.lexeme
+),
+hits AS (
+    SELECT id, tsv FROM scope WHERE tsv @@ {match}
+),
+scored AS (
+    SELECT h.id,
+           sum(
+               ln(1 + (corpus.n - df.df + 0.5) / (df.df + 0.5))
+               * u.tf * (:k1 + 1)
+               / (u.tf + :k1 * (1 - :b + :b * length(h.tsv) / corpus.avg_len))
+           ) AS score
+    FROM hits h
+    CROSS JOIN LATERAL (
+        SELECT e.lexeme, coalesce(array_length(e.positions, 1), 1)::float8 AS tf
+        FROM unnest(h.tsv) AS e(lexeme, positions, weights)
+    ) u
+    JOIN df ON df.lexeme = u.lexeme
+    CROSS JOIN corpus
+    GROUP BY h.id
+)
+SELECT c.id, c.document_id, c.text, c.heading_path, c.chunk_type, c.token_count, c.version,
+       d.source_path, d.title, d.url, s.score AS rank
+FROM scored s
+JOIN chunks c ON c.id = s.id
+JOIN documents d ON d.id = c.document_id
+ORDER BY s.score DESC, c.id
+LIMIT :k
+"""
+
+
+def _bm25(
+    session: Session, question: str, config: PipelineConfig, *, version: str | None, limit: int
+) -> list[Candidate]:
+    """Okapi BM25 over the filtered chunk set, in one SQL statement.
+
+    Everything BM25 needs is derivable from the stored `tsvector`, so no
+    extension and no side table: `N` and the mean length come from the scope
+    (active chunk set, live documents, requested version), each term's
+    document frequency from a GIN-backed `@@` count, and its frequency in a
+    chunk from `unnest(tsv)`'s position list.
+
+        score = sum over query terms t in the chunk of
+                idf(t) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * len / avg_len))
+        idf(t) = ln(1 + (N - df + 0.5) / (df + 0.5))
+
+    Two approximations, both documented in LIMITATIONS: `len` is the chunk's
+    count of *distinct* lexemes (`length(tsvector)`), not its token count; and
+    Postgres keeps at most 256 positions per lexeme, which caps `tf` -- far
+    beyond where BM25's saturation has already flattened it.
+    """
+    lexical = config.retrieval.lexical
+    scoped_version = version if config.retrieval.version_filter else None
+    statement = text(_BM25_SQL.format(match=_MATCH_ANY if lexical.match == "any" else _MATCH_ALL))
+    rows = session.execute(
+        statement,
+        {
+            "language": lexical.text_search_config,
+            "question": question,
+            "chunker_name": config.chunker_name,
+            "version": scoped_version,
+            "k1": lexical.bm25_k1,
+            "b": lexical.bm25_b,
+            "k": limit,
+        },
+    ).all()
+    return [
+        _to_candidate(row, "lexical", float(row.rank), position)
+        for position, row in enumerate(rows, start=1)
+    ]
 
 
 # ---------------------------------------------------------------------------

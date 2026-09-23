@@ -96,18 +96,51 @@ class ParsedDocument:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+def _strip_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    """Remove `<!-- ... -->` from one line, carrying multi-line state across lines."""
+    kept: list[str] = []
+    position = 0
+    while position < len(line):
+        if in_comment:
+            end = line.find("-->", position)
+            if end == -1:
+                return "".join(kept), True
+            position, in_comment = end + 3, False
+        else:
+            start = line.find("<!--", position)
+            if start == -1:
+                kept.append(line[position:])
+                break
+            kept.append(line[position:start])
+            position, in_comment = start + 4, True
+    return "".join(kept), in_comment
+
+
 def _strip_shortcodes(text: str) -> str:
-    """Unwrap content-bearing shortcodes, drop pure markup.
+    """Unwrap content-bearing shortcodes, drop pure markup and HTML comments.
 
     Fenced code blocks are left completely alone: a YAML example may legitimately
     contain brace sequences, and mangling an example is worse than leaving a
     stray shortcode in prose.
+
+    HTML comments never render on the site, and in this corpus they are
+    contributor notes -- "TODO: verify release after which the --cascade flag
+    is switched", "UPDATE THIS WHEN PROMOTING TO BETA" -- plus Hugo section
+    markers like `<!-- steps -->`. Left in, they became 103 chunks with no
+    words at all and sat inside nearly a thousand more, where a reader saw
+    them as documentation and a model could cite them as fact.
     """
     out: list[str] = []
     in_fence = False
     fence_marker = ""
+    in_comment = False
 
     for line in text.splitlines():
+        # Comments are resolved before fences, so a fence *inside* a comment
+        # is commented out rather than opening a code block.
+        if not in_fence and (in_comment or "<!--" in line):
+            line, in_comment = _strip_html_comments(line, in_comment)
+
         stripped = line.lstrip()
         fence = _FENCE.match(stripped)
         if fence:
