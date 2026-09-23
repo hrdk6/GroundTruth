@@ -62,6 +62,23 @@ _FEATURE_STATE = re.compile(
 )
 _ANY_SHORTCODE = re.compile(r"\{\{[<%][^}]*?[>%]\}\}", re.DOTALL)
 
+# `## {{% heading "prerequisites" %}}` renders as a localized section title.
+# Stripped like any other shortcode it left an *empty* heading -- on 266 of the
+# evaluated pages -- so "Before you begin" and "What's next" shared one
+# heading path, were merged as if they were one section, and were paired
+# against each other by conflict detection. These are the site's English
+# labels (kubernetes/website data/i18n/en/en.toml).
+_HEADING_SHORTCODE = re.compile(r"\{\{[<%]\s*heading\s+\"([^\"]+)\"\s*[>%]\}\}", re.IGNORECASE)
+_HEADING_LABELS = {
+    "prerequisites": "Before you begin",
+    "whatsnext": "What's next",
+    "objectives": "Objectives",
+    "cleanup": "Clean up",
+    "seealso": "See also",
+    "synopsis": "Synopsis",
+    "options": "Options",
+}
+
 _FENCE = re.compile(r"^(```|~~~)")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 # [text](/docs/concepts/) -> absolute; leaves external and anchor links alone.
@@ -106,6 +123,10 @@ def _strip_shortcodes(text: str) -> str:
             out.append(line)
             continue
 
+        line = _HEADING_SHORTCODE.sub(
+            lambda m: _HEADING_LABELS.get(m.group(1).lower(), m.group(1).replace("_", " ").title()),
+            line,
+        )
         line = _GLOSSARY.sub(r"\1", line)
         line = _GLOSSARY_TERM_ONLY.sub(r"\1", line)
         line = _ADMONITION_OPEN.sub(lambda m: f"{m.group(1).capitalize()}:", line)

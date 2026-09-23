@@ -74,6 +74,36 @@ def test_code_blocks_are_never_touched_by_shortcode_stripping() -> None:
     assert "{{< keep >}}" in doc.text
 
 
+def test_heading_shortcodes_become_their_section_titles() -> None:
+    """Regression: stripped to nothing, they left empty headings on 266 pages,
+    so "Before you begin" and "What's next" shared one heading path."""
+    raw = (
+        '## {{% heading "prerequisites" %}}\n\nInstall kubectl.\n\n'
+        '## {{% heading "whatsnext" %}}\n\nRead more.\n\n'
+        '## {{< heading "somethingnew" >}}\n\nText.'
+    )
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    assert "## Before you begin" in doc.text
+    assert "## What's next" in doc.text
+    assert "## Somethingnew" in doc.text
+    assert "{{" not in doc.text
+
+
+def test_distinct_shortcode_headings_give_distinct_heading_paths(
+    tokenizer: SimpleTokenizer,
+) -> None:
+    raw = (
+        '## {{% heading "prerequisites" %}}\n\nInstall kubectl.\n\n'
+        '## {{% heading "whatsnext" %}}\n\nRead more.'
+    )
+    doc = parse_markdown(raw, source_path="a.md", version="1.28")
+    config = ChunkingConfig(
+        chunker="structure_aware", max_tokens=50, overlap_tokens=5, min_tokens=1
+    )
+    chunks = StructureAwareChunker(config, tokenizer).chunk(doc.text, title="T")
+    assert {c.heading_path for c in chunks} == {"T > Before you begin", "T > What's next"}
+
+
 def test_relative_doc_links_become_absolute() -> None:
     raw = "See [the pod docs](/docs/concepts/workloads/pods/) for more."
     doc = parse_markdown(raw, source_path="a.md", version="1.28")
