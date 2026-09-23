@@ -436,3 +436,13 @@ def test_offsets_line_up_with_the_tokens(tokenizer: SimpleTokenizer) -> None:
     tokens, offsets = tokenizer.encode_with_offsets(text)
     assert len(tokens) == len(offsets) == 3
     assert [text[a:b] for a, b in offsets] == ["alpha", "beta", "gamma"]
+
+
+def test_markup_debris_does_not_become_a_chunk(tokenizer: SimpleTokenizer) -> None:
+    """Regression: `* ` left by a stripped include, or a lone `---`, was embedded."""
+    config = ChunkingConfig(
+        chunker="structure_aware", max_tokens=50, overlap_tokens=5, min_tokens=1
+    )
+    text = "## Before you begin\n\n* \n\n## Steps\n\n---\n\n## Real\n\nThe kubelet runs probes."
+    chunks = StructureAwareChunker(config, tokenizer).chunk(text, title="T")
+    assert [c.text for c in chunks] == ["The kubelet runs probes."]

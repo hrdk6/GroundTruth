@@ -44,6 +44,7 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 _TABLE_SEP = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+_HAS_WORD = re.compile(r"[^\W_]")  # any letter or digit, in any script
 
 
 @dataclass
@@ -213,9 +214,13 @@ class StructureAwareChunker:
             if not blocks:
                 continue
             for piece in self._pack(blocks):
-                token_count = self.tokenizer.count(piece.text)
-                if not piece.text.strip():
+                # A piece with no letter or digit is markup debris -- an empty
+                # list bullet where an `{{< include >}}` stood, a lone `#` or
+                # `---` -- and embedding it adds a retrievable chunk that says
+                # nothing. (Revision 3.)
+                if not _HAS_WORD.search(piece.text):
                     continue
+                token_count = self.tokenizer.count(piece.text)
                 chunk = TextChunk(
                     index=len(chunks),
                     text=piece.text,
