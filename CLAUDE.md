@@ -86,6 +86,10 @@ automatically — there is no `activate` step.
   rejects. `app/run.py` owns the `asyncio.run` call and forces
   `SelectorEventLoop`. Run the API natively with `make dev` / `./make.ps1 dev`,
   never bare `uvicorn`. Inside Docker (Linux) none of this applies.
+- **The Next.js rewrite proxy times out at 30s by default.** A `full` answer
+  that regenerates takes 40-60s on the free tier; the backend finished it and
+  the browser got a 500. `experimental.proxyTimeout` in `next.config.mjs`
+  raises it. Keep it above the LLM client's 180s per-call timeout.
 - **Database connect timeout is 3s** (`CONNECT_TIMEOUT_SECONDS` in
   `app/core/db.py`). Without it, "Postgres isn't running" makes `/health` hang
   for ~4 minutes while psycopg retries every resolved address.

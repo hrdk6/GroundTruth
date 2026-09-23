@@ -81,9 +81,19 @@ export default function ExperimentsPage() {
           const ids = new Set(data.map((run) => run.id));
           const kept = current.filter((id) => ids.has(id));
           if (kept.length) return kept;
-          // Default to comparing the two most recent runs.
-          if (data.length >= 2) return [data[1].id, data[0].id];
-          return data.length === 1 ? [data[0].id] : [];
+          // Default to the newest run and the newest *comparable* one: same
+          // golden set, same split. The two newest runs are often dev and test
+          // of one config, and comparing those measures the questions, not the
+          // pipeline.
+          const [newest] = data;
+          if (!newest) return [];
+          const partner = data.find(
+            (run) =>
+              run.id !== newest.id &&
+              run.dataset_version === newest.dataset_version &&
+              run.split === newest.split,
+          );
+          return partner ? [partner.id, newest.id] : [newest.id];
         });
       })
       .catch((exc) =>
@@ -221,7 +231,7 @@ export default function ExperimentsPage() {
                           {formatCost(run.cost_usd)}
                         </td>
                         <td
-                          className="px-3 py-2 mono text-xs text-dim"
+                          className="px-3 py-2 mono text-xs text-dim whitespace-nowrap"
                           title={
                             run.git_dirty
                               ? "Recorded from uncommitted changes: not reproducible from this SHA"
@@ -231,7 +241,7 @@ export default function ExperimentsPage() {
                           {run.git_sha ? run.git_sha.slice(0, 7) : "—"}
                           {run.git_dirty && <span className="text-alarm">*</span>}
                         </td>
-                        <td className="px-3 py-2 mono text-xs text-dim">
+                        <td className="px-3 py-2 mono text-xs text-dim whitespace-nowrap">
                           {formatTime(run.timestamp)}
                         </td>
                       </tr>
@@ -266,9 +276,6 @@ function Comparison({
   head: ExperimentDetail;
   categories: string[];
 }) {
-  const number = (value: unknown): number | null =>
-    typeof value === "number" && !Number.isNaN(value) ? value : null;
-
   // Paired statistics come from the server, which pairs the two runs item by
   // item. A 409 means the runs are over different items and cannot pair.
   const [paired, setPaired] = useState<PairedComparison | null>(null);
@@ -295,16 +302,22 @@ function Comparison({
         </span>
       </h2>
 
-      {base.dataset_version !== head.dataset_version && (
+      {(base.dataset_version !== head.dataset_version || base.split !== head.split) && (
         <div
           role="alert"
           className="mb-5 border-l-2 px-4 py-3 text-sm bg-panel"
           style={{ borderColor: "var(--color-alarm)" }}
         >
-          These runs used different golden sets (
-          <span className="mono text-xs">{base.dataset_version}</span> vs{" "}
-          <span className="mono text-xs">{head.dataset_version}</span>). The deltas below
-          are not a like-for-like comparison.
+          These runs scored different questions (
+          <span className="mono text-xs">
+            {base.dataset_version}/{base.split}
+          </span>{" "}
+          vs{" "}
+          <span className="mono text-xs">
+            {head.dataset_version}/{head.split}
+          </span>
+          ), so the deltas below are not a comparison of the two configs — only of two
+          question sets.
         </div>
       )}
 
@@ -347,8 +360,10 @@ function Comparison({
                           title={`p = ${pair.p_value.toFixed(3)} · ${pair.wins} item(s) better, ${pair.losses} worse, of ${pair.n}`}
                           className={pair.distinguishable ? "text-text" : "text-dim"}
                         >
-                          [{signed(pair.low)}, {signed(pair.high)}]
-                          <span className="ml-2">
+                          <span className="whitespace-nowrap">
+                            [{signed(pair.low)}, {signed(pair.high)}]
+                          </span>
+                          <span className="block sm:inline sm:ml-2">
                             {pair.distinguishable ? "real" : "noise"}
                           </span>
                         </span>
@@ -370,8 +385,15 @@ function Comparison({
           </p>
 
           <div className="mt-4 rule pt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-mute mono">
-            <span>
-              p95 {base.latency.p95_ms.toFixed(0)}ms → {head.latency.p95_ms.toFixed(0)}ms
+            <span
+              title={
+                [base, head].some(servedFromCache)
+                  ? "† mostly replayed from the LLM cache: this measures disk reads, not a cold query"
+                  : undefined
+              }
+            >
+              p95 {base.latency.p95_ms.toFixed(0)}ms{servedFromCache(base) && "†"} →{" "}
+              {head.latency.p95_ms.toFixed(0)}ms{servedFromCache(head) && "†"}
             </span>
             <span>
               cost {formatCost(base.cost.cost_usd)} → {formatCost(head.cost.cost_usd)}
@@ -399,8 +421,8 @@ function Comparison({
             </thead>
             <tbody className="divide-y divide-line">
               {categories.map((category) => {
-                const before = number(base.metrics_by_category[category]?.["recall@5"]);
-                const after = number(head.metrics_by_category[category]?.["recall@5"]);
+                const before = categoryRecall(base, category);
+                const after = categoryRecall(head, category);
                 return (
                   <tr key={category}>
                     <td className="py-2 mono text-xs text-text">
@@ -498,8 +520,31 @@ function AttributionBar({
   );
 }
 
+function number(value: unknown): number | null {
+  return typeof value === "number" && !Number.isNaN(value) ? value : null;
+}
+
 function signed(value: number): string {
   return `${value >= 0 ? "+" : "\u2212"}${Math.abs(value).toFixed(2)}`;
+}
+
+/**
+ * Recall@5 for one category, or null when no item in it has gold evidence:
+ * records store 0.0 for a mean over nothing, which is not a score.
+ */
+function categoryRecall(run: ExperimentDetail, category: string): number | null {
+  const values = run.metrics_by_category[category];
+  if (!values || !values["count"]) return null;
+  return number(values["recall@5"]);
+}
+
+/**
+ * A run that mostly replayed the LLM cache measured the cache, not the model.
+ * Same rule as the README table's dagger (scripts/generate_results_table.py).
+ */
+function servedFromCache(run: ExperimentDetail): boolean {
+  const { calls, cached_calls } = run.cost;
+  return calls > 0 && cached_calls / calls >= 0.5;
 }
 
 /** A run's own 95% interval, shown next to its point estimate. */
