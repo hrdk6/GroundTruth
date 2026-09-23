@@ -73,22 +73,27 @@ are documented in `CLAUDE.md` so the next person does not spend an hour on them.
 
 ## Phases 1-7
 
-### L7 — No generation metric has been measured
+### L7 — The judge grades its own work
 
-Retrieval is measured; generation is not. Grounded answering, claim
-verification, conflict notes and the LLM judge are implemented and unit tested,
-but every one of them calls a model, and this environment has no
-`ANTHROPIC_API_KEY`. There is therefore **no** answer-correctness,
-faithfulness, citation-precision, abstention or judge-agreement figure in this
-repository, and the sections that would hold them say so.
+The single biggest caveat on every generation number. `answer_correctness`
+(0.842 dev, 0.923 test) was produced by `nvidia/nemotron-3-super-120b-a12b`
+grading answers written by the same model. Self-evaluation inflates, and no
+human labels exist yet to say by how much.
 
-The same block stops `hybrid_rerank_rewrite` and `full` from being evaluated,
-which means query rewriting and multi-hop decomposition are untested against
-data — and `multi_hop` recall is 0.000 in every run, so decomposition is
-precisely the change most worth testing.
+`faithfulness` and `citation_precision` reaching exactly 1.000 on the test
+split should be read the same way: the verifier found nothing wrong with
+citations the same model wrote.
 
-**Fix.** Set a key, then `make eval CONFIG=configs/full.yaml MODE=full`,
-label ~50 items, and report the kappa.
+The one figure here that does not depend on the judge is
+`abstention_recall 1.000` — abstention is decided by an exact string match on
+the fixed abstention sentence, not by a model.
+
+**Why it happened.** The free tier served only three models fast enough to use:
+of 58 chat models probed with a 25-second timeout, 55 timed out or returned
+`NotFoundError`. There was no second usable model to judge with.
+
+**Fix.** Point `GT_CHEAP_MODEL` at a different model from
+`GT_GENERATION_MODEL`, and run the labeling CLI for ~50 items to get a kappa.
 
 ### L8 — The golden set is small, and I wrote it
 
@@ -181,3 +186,26 @@ run the project on a machine or CI runner without it. CI is unaffected.
 **Not affected by this:** anything that does not load torch, including
 `make llm-check` and the whole LLM provider path, so a provider can still be
 configured and verified while embedding is blocked.
+
+### L15 — `multi_hop` is 0.000 in every run
+
+Every configuration, both splits, retrieval-only and full: two items requiring
+evidence from two different pages, neither ever satisfied. `recall@5` demands
+*all* gold evidence for an item, so retrieving one of the two pages scores zero
+(`partial_recall@10` is reported alongside for diagnosis).
+
+Multi-hop decomposition is enabled in `configs/full.yaml` and did not fix it.
+With only two multi-hop items the measurement is too thin to diagnose further —
+which is itself the finding: the golden set needs more of them before this can
+be worked on honestly.
+
+### L16 — Integration tests used to destroy the developer's corpus
+
+The integration tests truncate the corpus tables. They originally ran against
+whatever `DATABASE_URL` pointed at, so `make test` silently wiped a freshly
+ingested corpus — which happened once during development and cost a full
+re-ingest.
+
+They now create and use a separate `<name>_test` database. Worth knowing
+because the failure was silent: the tests passed, and the damage only showed up
+later as an empty database.

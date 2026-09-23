@@ -1,23 +1,23 @@
 {
-  "timestamp": "2026-09-23T03:39:05.032841+00:00",
+  "timestamp": "2026-09-23T08:02:00.376777+00:00",
   "mode": "retrieval",
   "split": "test",
   "dataset_version": "golden_v1",
   "dataset_size": 13,
-  "git_sha": "bee198a23eedcce57ed3069e37ce0c2974d4485b",
+  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
   "git_dirty": true,
   "config": {
-    "name": "baseline",
-    "config_hash": "97b334a0f394",
-    "chunker_name": "fixed-512-64",
+    "name": "structure_aware",
+    "config_hash": "3c606bcc9833",
+    "chunker_name": "structure_aware-512-64",
     "values": {
-      "name": "baseline",
-      "description": "Fixed 512-token chunks with 64-token overlap, embedded with bge-small, dense cosine retrieval only, top-5 into a grounded-answer prompt. No lexical search, no fusion, no reranking, no query rewriting, no verification.\n",
+      "name": "structure_aware",
+      "description": "Baseline with heading-aware chunking that never splits a fenced code block or a table, merges tiny sections, and prepends the heading path to the embedded text. Dense-only retrieval, as in the baseline.\n",
       "chunking": {
-        "chunker": "fixed",
+        "chunker": "structure_aware",
         "max_tokens": 512,
         "overlap_tokens": 64,
-        "min_tokens": 32,
+        "min_tokens": 64,
         "prepend_heading_path": true
       },
       "embedding": {
@@ -82,16 +82,20 @@
   "environment": {
     "python": "3.12.12",
     "platform": "Windows-11-10.0.26200-SP0",
-    "embedding_model": "BAAI/bge-small-en-v1.5"
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "llm_provider": "openai",
+    "llm_base_url": "https://integrate.api.nvidia.com/v1",
+    "generation_model": "nvidia/nemotron-3-super-120b-a12b",
+    "cheap_model": "nvidia/nemotron-3-super-120b-a12b"
   },
   "metrics": {
     "count": 10,
-    "recall@1": 0.1,
-    "recall@5": 0.1,
-    "recall@10": 0.1,
-    "mrr": 0.1,
-    "ndcg@10": 0.1,
-    "partial_recall@10": 0.1,
+    "recall@1": 0.2,
+    "recall@5": 0.7,
+    "recall@10": 0.7,
+    "mrr": 0.4167,
+    "ndcg@10": 0.4893,
+    "partial_recall@10": 0.7,
     "abstention_precision": null,
     "abstention_recall": null,
     "false_answer_rate": null,
@@ -100,24 +104,24 @@
   "metrics_by_category": {
     "exact_term": {
       "count": 3,
-      "recall@1": 0.0,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "partial_recall@10": 0.0,
+      "recall@1": 0.3333,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.6111,
+      "ndcg@10": 0.7103,
+      "partial_recall@10": 1.0,
       "abstention_precision": null,
       "abstention_recall": null,
       "false_answer_rate": null
     },
     "factual": {
       "count": 4,
-      "recall@1": 0.25,
-      "recall@5": 0.25,
-      "recall@10": 0.25,
-      "mrr": 0.25,
-      "ndcg@10": 0.25,
-      "partial_recall@10": 0.25,
+      "recall@1": 0.0,
+      "recall@5": 0.75,
+      "recall@10": 0.75,
+      "mrr": 0.3333,
+      "ndcg@10": 0.4405,
+      "partial_recall@10": 0.75,
       "abstention_precision": null,
       "abstention_recall": null,
       "false_answer_rate": null
@@ -136,12 +140,12 @@
     },
     "table_or_code": {
       "count": 1,
-      "recall@1": 0.0,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "partial_recall@10": 0.0,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "partial_recall@10": 1.0,
       "abstention_precision": null,
       "abstention_recall": null,
       "false_answer_rate": null
@@ -170,12 +174,13 @@
     }
   },
   "attribution": {
-    "retrieval_miss": 9
+    "retrieval_miss": 2,
+    "ranking_miss": 1
   },
   "latency": {
-    "p50_ms": 19.07,
-    "p95_ms": 22.92,
-    "total_seconds": 13.55
+    "p50_ms": 18.39,
+    "p95_ms": 22.37,
+    "total_seconds": 12.22
   },
   "cost": {
     "calls": 0,
@@ -195,19 +200,19 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        14226,
-        13759,
-        13642,
-        13641,
-        14402
+        6229,
+        5264,
+        6225,
+        5263,
+        5057
       ],
-      "best_rank": null,
-      "gold_found": 0,
+      "best_rank": 2,
+      "gold_found": 1,
       "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
       "answer": "",
       "abstained": false,
       "version_used": "1.30",
@@ -216,13 +221,13 @@
       "judge_reason": "",
       "support_fraction": null,
       "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 13324.77,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 11994.87,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 348.36,
-        "dense": 12975.61
+        "version_detection": 36.53,
+        "dense": 11957.99
       }
     },
     {
@@ -232,11 +237,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        13403,
-        13413,
-        13409,
-        13414,
-        13301
+        4609,
+        4631,
+        4613,
+        4625,
+        4510
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -255,11 +260,11 @@
       "citation_precision": null,
       "attribution": "retrieval_miss",
       "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 21.28,
+      "latency_ms": 18.22,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.84,
-        "dense": 18.67
+        "version_detection": 0.88,
+        "dense": 16.21
       }
     },
     {
@@ -269,11 +274,159 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        13628,
-        13598,
-        13668,
-        13615,
-        13605
+        5016,
+        5079,
+        5030,
+        5095,
+        4994
+      ],
+      "best_rank": 3,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.3333,
+      "ndcg@10": 0.5,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 16.52,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.86,
+        "dense": 15.47
+      }
+    },
+    {
+      "item_id": "factual-fbe91ee4af",
+      "category": "factual",
+      "question": "Where does kubectl look for its configuration file by default?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        6629,
+        3739,
+        3742,
+        7245,
+        3749
+      ],
+      "best_rank": 2,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 17.08,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.8,
+        "dense": 16.1
+      }
+    },
+    {
+      "item_id": "exact_term-9d856cfa78",
+      "category": "exact_term",
+      "question": "Which field limits the number of old ReplicaSets a Deployment retains?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        5016,
+        5030,
+        5153,
+        4994,
+        4995
+      ],
+      "best_rank": 2,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 16.32,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.96,
+        "dense": 15.12
+      }
+    },
+    {
+      "item_id": "exact_term-3dbf0cd13a",
+      "category": "exact_term",
+      "question": "Which flag configures the NodePort range on the API server?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        4620,
+        4619,
+        4618,
+        4590,
+        4621
+      ],
+      "best_rank": 3,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.3333,
+      "ndcg@10": 0.5,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 22.37,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.95,
+        "dense": 21.18
+      }
+    },
+    {
+      "item_id": "exact_term-0e389b1121",
+      "category": "exact_term",
+      "question": "What must the endPort field be relative to port in a NetworkPolicy?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        4590,
+        4620,
+        4576,
+        4589,
+        4580
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -292,159 +445,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 17.2,
+      "latency_ms": 18.39,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.15,
-        "dense": 15.65
-      }
-    },
-    {
-      "item_id": "factual-fbe91ee4af",
-      "category": "factual",
-      "question": "Where does kubectl look for its configuration file by default?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        12923,
-        14806,
-        13794,
-        14009,
-        12924
-      ],
-      "best_rank": null,
-      "gold_found": 0,
-      "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 19.07,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 0.83,
-        "dense": 17.48
-      }
-    },
-    {
-      "item_id": "exact_term-9d856cfa78",
-      "category": "exact_term",
-      "question": "Which field limits the number of old ReplicaSets a Deployment retains?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        13628,
-        13605,
-        13598,
-        13668,
-        13659
-      ],
-      "best_rank": null,
-      "gold_found": 0,
-      "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 19.27,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 0.8,
-        "dense": 16.46
-      }
-    },
-    {
-      "item_id": "exact_term-3dbf0cd13a",
-      "category": "exact_term",
-      "question": "Which flag configures the NodePort range on the API server?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        13406,
-        13407,
-        13389,
-        14657,
-        13329
-      ],
-      "best_rank": null,
-      "gold_found": 0,
-      "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 18.58,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.31,
-        "dense": 16.17
-      }
-    },
-    {
-      "item_id": "exact_term-0e389b1121",
-      "category": "exact_term",
-      "question": "What must the endPort field be relative to port in a NetworkPolicy?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        13389,
-        13385,
-        13406,
-        13382,
-        13418
-      ],
-      "best_rank": null,
-      "gold_found": 0,
-      "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 22.92,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 0.76,
-        "dense": 20.55
+        "version_detection": 0.93,
+        "dense": 17.18
       }
     },
     {
@@ -454,19 +459,19 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        13582,
-        13587,
-        13583,
-        13588,
-        13581
+        4955,
+        4956,
+        4966,
+        4965,
+        4963
       ],
-      "best_rank": null,
-      "gold_found": 0,
+      "best_rank": 1,
+      "gold_found": 1,
       "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
       "answer": "",
       "abstained": false,
       "version_used": "1.30",
@@ -475,13 +480,13 @@
       "judge_reason": "",
       "support_fraction": null,
       "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 19.57,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 17.55,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.07,
-        "dense": 16.27
+        "version_detection": 0.79,
+        "dense": 16.45
       }
     },
     {
@@ -491,11 +496,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        12866,
-        13727,
-        13195,
-        12865,
-        13758
+        4244,
+        5263,
+        4243,
+        4248,
+        3648
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -514,11 +519,11 @@
       "citation_precision": null,
       "attribution": "retrieval_miss",
       "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 19.89,
+      "latency_ms": 19.36,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.87,
-        "dense": 17.81
+        "version_detection": 0.79,
+        "dense": 17.55
       }
     },
     {
@@ -528,11 +533,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        13032,
-        13648,
-        13182,
-        13881,
-        13029
+        4211,
+        3940,
+        6904,
+        5527,
+        3938
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -551,11 +556,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 17.36,
+      "latency_ms": 18.94,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.71,
-        "dense": 16.57
+        "version_detection": 0.95,
+        "dense": 17.91
       }
     },
     {
@@ -565,11 +570,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        13029,
-        13032,
-        12861,
-        13034,
-        13031
+        3934,
+        5482,
+        3940,
+        3641,
+        3938
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -588,11 +593,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 17.89,
+      "latency_ms": 17.78,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.73,
-        "dense": 17.09
+        "version_detection": 0.93,
+        "dense": 16.79
       }
     },
     {
@@ -602,11 +607,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        13860,
-        13868,
-        13036,
-        13867,
-        13861
+        5899,
+        4165,
+        3723,
+        4143,
+        4686
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -625,11 +630,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 16.98,
+      "latency_ms": 19.19,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.01,
-        "dense": 15.88
+        "version_detection": 0.69,
+        "dense": 18.42
       }
     },
     {
@@ -639,11 +644,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        13774,
-        13778,
-        13772,
-        13776,
-        13775
+        5294,
+        4400,
+        5299,
+        5295,
+        5300
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -660,13 +665,13 @@
       "judge_reason": "",
       "support_fraction": null,
       "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 18.32,
+      "attribution": "ranking_miss",
+      "attribution_detail": "gold was retrieved (dense rank 12) but cut",
+      "latency_ms": 18.45,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.99,
-        "dense": 15.31
+        "version_detection": 0.88,
+        "dense": 16.54
       }
     }
   ]

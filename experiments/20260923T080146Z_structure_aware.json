@@ -1,18 +1,18 @@
 {
-  "timestamp": "2026-09-23T03:35:03.596689+00:00",
+  "timestamp": "2026-09-23T08:01:46.387619+00:00",
   "mode": "retrieval",
   "split": "dev",
   "dataset_version": "golden_v1",
   "dataset_size": 19,
-  "git_sha": "bee198a23eedcce57ed3069e37ce0c2974d4485b",
+  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
   "git_dirty": true,
   "config": {
-    "name": "hybrid",
-    "config_hash": "b869490dcc89",
+    "name": "structure_aware",
+    "config_hash": "3c606bcc9833",
     "chunker_name": "structure_aware-512-64",
     "values": {
-      "name": "hybrid",
-      "description": "structure_aware chunking with dense + Postgres full-text retrieval combined by Reciprocal Rank Fusion (k=60). No reranking.\n",
+      "name": "structure_aware",
+      "description": "Baseline with heading-aware chunking that never splits a fenced code block or a table, merges tiny sections, and prepends the heading path to the embedded text. Dense-only retrieval, as in the baseline.\n",
       "chunking": {
         "chunker": "structure_aware",
         "max_tokens": 512,
@@ -34,12 +34,12 @@
           "k": 20
         },
         "lexical": {
-          "enabled": true,
+          "enabled": false,
           "k": 20,
           "text_search_config": "english"
         },
         "fusion": {
-          "enabled": true,
+          "enabled": false,
           "rrf_k": 60
         },
         "rerank": {
@@ -82,15 +82,19 @@
   "environment": {
     "python": "3.12.12",
     "platform": "Windows-11-10.0.26200-SP0",
-    "embedding_model": "BAAI/bge-small-en-v1.5"
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "llm_provider": "openai",
+    "llm_base_url": "https://integrate.api.nvidia.com/v1",
+    "generation_model": "nvidia/nemotron-3-super-120b-a12b",
+    "cheap_model": "nvidia/nemotron-3-super-120b-a12b"
   },
   "metrics": {
     "count": 14,
-    "recall@1": 0.4286,
+    "recall@1": 0.2857,
     "recall@5": 0.7857,
     "recall@10": 0.7857,
-    "mrr": 0.5833,
-    "ndcg@10": 0.774,
+    "mrr": 0.5,
+    "ndcg@10": 0.7119,
     "partial_recall@10": 0.8214,
     "abstention_precision": null,
     "abstention_recall": null,
@@ -112,11 +116,11 @@
     },
     "factual": {
       "count": 4,
-      "recall@1": 0.75,
+      "recall@1": 0.5,
       "recall@5": 0.75,
       "recall@10": 0.75,
-      "mrr": 0.75,
-      "ndcg@10": 1.1121,
+      "mrr": 0.625,
+      "ndcg@10": 1.0198,
       "partial_recall@10": 0.75,
       "abstention_precision": null,
       "abstention_recall": null,
@@ -136,11 +140,11 @@
     },
     "table_or_code": {
       "count": 3,
-      "recall@1": 1.0,
+      "recall@1": 0.6667,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "mrr": 1.0,
-      "ndcg@10": 1.0,
+      "mrr": 0.7778,
+      "ndcg@10": 0.8333,
       "partial_recall@10": 1.0,
       "abstention_precision": null,
       "abstention_recall": null,
@@ -173,9 +177,9 @@
     "retrieval_miss": 2
   },
   "latency": {
-    "p50_ms": 49.54,
-    "p95_ms": 84.41,
-    "total_seconds": 12.76
+    "p50_ms": 16.87,
+    "p95_ms": 22.0,
+    "total_seconds": 12.37
   },
   "cost": {
     "calls": 0,
@@ -195,11 +199,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18167,
-        18168,
-        18171,
-        18166,
-        20744
+        3692,
+        3693,
+        3696,
+        3691,
+        6269
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -218,13 +222,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 11787.36,
+      "latency_ms": 12064.85,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 364.92,
-        "dense": 11395.53,
-        "lexical": 26.63,
-        "fusion": 0.03
+        "version_detection": 36.84,
+        "dense": 12027.79
       }
     },
     {
@@ -234,11 +236,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18490,
-        18201,
-        20820,
-        19512,
-        18545
+        4015,
+        3726,
+        6345,
+        5037,
+        4070
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -257,13 +259,11 @@
       "citation_precision": null,
       "attribution": "retrieval_miss",
       "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 46.15,
+      "latency_ms": 17.84,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 2.41,
-        "dense": 19.25,
-        "lexical": 24.08,
-        "fusion": 0.02
+        "version_detection": 0.92,
+        "dense": 16.66
       }
     },
     {
@@ -273,167 +273,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19093,
-        19095,
-        19094,
-        19843,
-        19096
-      ],
-      "best_rank": 1,
-      "gold_found": 1,
-      "gold_total": 1,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "ndcg@10": 1.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "none",
-      "attribution_detail": "",
-      "latency_ms": 49.54,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 2.01,
-        "dense": 17.42,
-        "lexical": 29.78,
-        "fusion": 0.03
-      }
-    },
-    {
-      "item_id": "factual-df72efc707",
-      "category": "factual",
-      "question": "What happens to an emptyDir volume when its Pod is removed from a node?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        19319,
-        19350,
-        18191,
-        19342,
-        19334
-      ],
-      "best_rank": 1,
-      "gold_found": 1,
-      "gold_total": 1,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "ndcg@10": 2.4485,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "none",
-      "attribution_detail": "",
-      "latency_ms": 58.16,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.74,
-        "dense": 21.49,
-        "lexical": 34.64,
-        "fusion": 0.02
-      }
-    },
-    {
-      "item_id": "exact_term-ab2a448b9c",
-      "category": "exact_term",
-      "question": "Which Job field caps the number of retries before a Job is marked failed?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        19436,
-        19522,
-        19523,
-        19530,
-        19546
-      ],
-      "best_rank": null,
-      "gold_found": 0,
-      "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 57.52,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.09,
-        "dense": 18.48,
-        "lexical": 36.53,
-        "fusion": 0.01
-      }
-    },
-    {
-      "item_id": "exact_term-5660330851",
-      "category": "exact_term",
-      "question": "Which access mode restricts a volume to read-write by a single Pod?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        19937,
-        19190,
-        19189,
-        19936,
-        19941
-      ],
-      "best_rank": 3,
-      "gold_found": 1,
-      "gold_total": 1,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "mrr": 0.3333,
-      "ndcg@10": 0.5,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "none",
-      "attribution_detail": "",
-      "latency_ms": 56.81,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.39,
-        "dense": 17.93,
-        "lexical": 37.21,
-        "fusion": 0.03
-      }
-    },
-    {
-      "item_id": "exact_term-e87c76e8c4",
-      "category": "exact_term",
-      "question": "What is the maximum length of a label value?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        18156,
-        18476,
-        18492,
-        18493,
-        20290
+        4620,
+        4618,
+        4619,
+        4621,
+        4590
       ],
       "best_rank": 2,
       "gold_found": 1,
@@ -452,27 +296,99 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 42.23,
+      "latency_ms": 16.87,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.1,
-        "dense": 16.92,
-        "lexical": 23.97,
-        "fusion": 0.02
+        "version_detection": 0.81,
+        "dense": 15.83
       }
     },
     {
-      "item_id": "exact_term-af7926f787",
-      "category": "exact_term",
-      "question": "Which taint effect stops new Pods from being scheduled onto a node?",
+      "item_id": "factual-df72efc707",
+      "category": "factual",
+      "question": "What happens to an emptyDir volume when its Pod is removed from a node?",
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18718,
-        18724,
-        18716,
-        18715,
-        18723
+        4844,
+        4875,
+        3716,
+        4867,
+        4859
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 2.4485,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 18.13,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.84,
+        "dense": 17.07
+      }
+    },
+    {
+      "item_id": "exact_term-ab2a448b9c",
+      "category": "exact_term",
+      "question": "Which Job field caps the number of retries before a Job is marked failed?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        4961,
+        5047,
+        5048,
+        5055,
+        5071
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 18.08,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.88,
+        "dense": 16.16
+      }
+    },
+    {
+      "item_id": "exact_term-5660330851",
+      "category": "exact_term",
+      "question": "Which access mode restricts a volume to read-write by a single Pod?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        5462,
+        4715,
+        4714,
+        5461,
+        5466
       ],
       "best_rank": 3,
       "gold_found": 1,
@@ -491,13 +407,85 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 52.81,
+      "latency_ms": 17.07,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.15,
-        "dense": 17.89,
-        "lexical": 33.4,
-        "fusion": 0.02
+        "version_detection": 0.93,
+        "dense": 15.96
+      }
+    },
+    {
+      "item_id": "exact_term-e87c76e8c4",
+      "category": "exact_term",
+      "question": "What is the maximum length of a label value?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        3681,
+        4001,
+        4017,
+        4018,
+        6765
+      ],
+      "best_rank": 2,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 16.29,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.86,
+        "dense": 15.28
+      }
+    },
+    {
+      "item_id": "exact_term-af7926f787",
+      "category": "exact_term",
+      "question": "Which taint effect stops new Pods from being scheduled onto a node?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        4243,
+        4249,
+        4241,
+        4240,
+        4248
+      ],
+      "best_rank": 3,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.3333,
+      "ndcg@10": 0.5,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 16.05,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.75,
+        "dense": 14.98
       }
     },
     {
@@ -507,11 +495,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19274,
-        19275,
-        19277,
-        19276,
-        19273
+        4799,
+        4800,
+        4802,
+        4801,
+        4798
       ],
       "best_rank": 2,
       "gold_found": 1,
@@ -530,13 +518,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 49.2,
+      "latency_ms": 16.22,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.22,
-        "dense": 20.84,
-        "lexical": 26.79,
-        "fusion": 0.02
+        "version_detection": 0.86,
+        "dense": 15.13
       }
     },
     {
@@ -546,11 +532,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18845,
-        20813,
-        20830,
-        18842,
-        20812
+        4370,
+        6338,
+        6355,
+        4367,
+        6337
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -569,13 +555,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 46.88,
+      "latency_ms": 16.67,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.17,
-        "dense": 18.16,
-        "lexical": 27.28,
-        "fusion": 0.03
+        "version_detection": 0.81,
+        "dense": 15.69
       }
     },
     {
@@ -585,19 +569,19 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18845,
-        18842,
-        20830,
-        20812,
-        20841
+        4367,
+        6355,
+        4370,
+        6337,
+        6366
       ],
-      "best_rank": 1,
+      "best_rank": 3,
       "gold_found": 1,
       "gold_total": 1,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "mrr": 1.0,
-      "ndcg@10": 1.0,
+      "mrr": 0.3333,
+      "ndcg@10": 0.5,
       "answer": "",
       "abstained": false,
       "version_used": "1.30",
@@ -608,13 +592,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 46.07,
+      "latency_ms": 16.46,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.11,
-        "dense": 16.9,
-        "lexical": 27.76,
-        "fusion": 0.03
+        "version_detection": 0.84,
+        "dense": 15.44
       }
     },
     {
@@ -624,11 +606,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18716,
-        18720,
-        18208,
-        18724,
-        18128
+        4241,
+        4245,
+        4249,
+        4247,
+        4250
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -647,13 +629,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 40.55,
+      "latency_ms": 16.01,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.07,
-        "dense": 15.78,
-        "lexical": 23.35,
-        "fusion": 0.04
+        "version_detection": 0.72,
+        "dense": 15.01
       }
     },
     {
@@ -663,11 +643,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18368,
-        18168,
-        18357,
-        18167,
-        20290
+        3893,
+        3693,
+        3882,
+        3692,
+        5815
       ],
       "best_rank": 4,
       "gold_found": 1,
@@ -686,13 +666,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 74.75,
+      "latency_ms": 22.0,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.04,
-        "dense": 21.79,
-        "lexical": 51.67,
-        "fusion": 0.03
+        "version_detection": 0.71,
+        "dense": 21.13
       }
     },
     {
@@ -702,11 +680,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18840,
-        18835,
-        18823,
-        18056,
-        18420
+        4365,
+        4360,
+        4348,
+        3581,
+        3945
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -725,13 +703,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 64.33,
+      "latency_ms": 18.12,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.1,
-        "dense": 21.06,
-        "lexical": 42.02,
-        "fusion": 0.03
+        "version_detection": 0.73,
+        "dense": 17.32
       }
     },
     {
@@ -741,11 +717,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        20631,
-        20312,
-        20302,
-        20010,
-        20634
+        6156,
+        5837,
+        5827,
+        5535,
+        6159
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -764,13 +740,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 60.1,
+      "latency_ms": 16.47,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.16,
-        "dense": 17.95,
-        "lexical": 40.86,
-        "fusion": 0.02
+        "version_detection": 0.75,
+        "dense": 15.63
       }
     },
     {
@@ -780,11 +754,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18272,
-        20400,
-        20399,
-        19388,
-        19409
+        3797,
+        5925,
+        5924,
+        4913,
+        4934
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -803,13 +777,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 48.09,
+      "latency_ms": 18.07,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.07,
-        "dense": 18.55,
-        "lexical": 28.34,
-        "fusion": 0.02
+        "version_detection": 0.83,
+        "dense": 17.16
       }
     },
     {
@@ -819,11 +791,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18413,
-        18409,
-        20589,
-        18412,
-        18445
+        3934,
+        3937,
+        4951,
+        3938,
+        3940
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -842,13 +814,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 84.41,
+      "latency_ms": 17.4,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.05,
-        "dense": 20.04,
-        "lexical": 63.18,
-        "fusion": 0.03
+        "version_detection": 0.74,
+        "dense": 16.6
       }
     },
     {
@@ -858,11 +828,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18888,
-        18639,
-        20188,
-        18760,
-        20176
+        4413,
+        4164,
+        5713,
+        4285,
+        5701
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -881,13 +851,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 47.68,
+      "latency_ms": 16.12,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.27,
-        "dense": 20.21,
-        "lexical": 26.05,
-        "fusion": 0.03
+        "version_detection": 0.75,
+        "dense": 15.3
       }
     },
     {
@@ -897,11 +865,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19709,
-        19712,
-        19726,
-        19759,
-        19673
+        5234,
+        5237,
+        5251,
+        5284,
+        5198
       ],
       "best_rank": 4,
       "gold_found": 1,
@@ -920,13 +888,11 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 45.54,
+      "latency_ms": 15.95,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.01,
-        "dense": 15.97,
-        "lexical": 28.34,
-        "fusion": 0.03
+        "version_detection": 0.73,
+        "dense": 15.07
       }
     }
   ]

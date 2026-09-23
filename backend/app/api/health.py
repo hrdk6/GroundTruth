@@ -34,6 +34,8 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     version: str
     database: DatabaseHealth
+    llm_provider: str
+    llm_key_configured: bool
     anthropic_key_configured: bool
     llm_cache: dict[str, Any]
 
@@ -57,6 +59,8 @@ async def health() -> HealthResponse:
         status="ok" if db.connected and db.pgvector else "degraded",
         version=__version__,
         database=db,
+        llm_provider=settings.gt_llm_provider,
+        llm_key_configured=settings.has_llm_key,
         anthropic_key_configured=settings.has_anthropic_key,
         llm_cache=dict(get_llm_client().cache.stats()),
     )

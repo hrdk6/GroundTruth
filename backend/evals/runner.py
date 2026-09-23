@@ -233,6 +233,7 @@ def evaluate(
 ) -> dict[str, Any]:
     """Run one experiment and return the record that gets written to disk."""
     started = time.perf_counter()
+    settings = get_settings()
     items = dataset.items[:limit] if limit else dataset.items
 
     tracker = CostTracker()
@@ -348,6 +349,12 @@ def evaluate(
             "python": platform.python_version(),
             "platform": platform.platform(),
             "embedding_model": config.embedding.model,
+            # Which model produced these numbers. Results from different
+            # providers are not comparable, so this is not optional metadata.
+            "llm_provider": settings.gt_llm_provider,
+            "llm_base_url": settings.gt_llm_base_url,
+            "generation_model": config.generation.model or settings.gt_generation_model,
+            "cheap_model": settings.gt_cheap_model,
         },
         "metrics": _aggregate(results, matches, mode == "full"),
         "metrics_by_category": by_category,
@@ -452,8 +459,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    if args.mode == "full" and not settings.has_anthropic_key:
-        print("Mode 'full' needs ANTHROPIC_API_KEY. Use --mode retrieval.", file=sys.stderr)
+    if args.mode == "full" and not settings.has_llm_key:
+        expected = (
+            "ANTHROPIC_API_KEY" if settings.gt_llm_provider == "anthropic" else "GT_LLM_API_KEY"
+        )
+        print(
+            f"Mode 'full' needs {expected} for provider '{settings.gt_llm_provider}'. "
+            "Use --mode retrieval, or run `make llm-check`.",
+            file=sys.stderr,
+        )
         return 2
 
     print(f"Evaluating {len(dataset)} items ({args.split}) with {config.name} [{args.mode}]...")

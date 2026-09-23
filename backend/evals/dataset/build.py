@@ -92,8 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.yes:
         print("\nRe-run with --yes to generate. Nothing was spent.", file=sys.stderr)
         return 1
-    if not settings.has_anthropic_key:
-        print("ANTHROPIC_API_KEY is not set; generation needs it.", file=sys.stderr)
+    if not settings.has_llm_key:
+        expected = (
+            "ANTHROPIC_API_KEY" if settings.gt_llm_provider == "anthropic" else "GT_LLM_API_KEY"
+        )
+        print(f"{expected} is not set; generation needs it.", file=sys.stderr)
         return 2
 
     root = args.root or RAW_DIR

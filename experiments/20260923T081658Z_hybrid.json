@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-09-23T03:40:36.778375+00:00",
+  "timestamp": "2026-09-23T08:16:58.339657+00:00",
   "mode": "retrieval",
   "split": "dev",
   "dataset_version": "fixture_golden",
   "dataset_size": 8,
-  "git_sha": "bee198a23eedcce57ed3069e37ce0c2974d4485b",
+  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
   "git_dirty": true,
   "config": {
     "name": "hybrid",
@@ -82,7 +82,11 @@
   "environment": {
     "python": "3.12.12",
     "platform": "Windows-11-10.0.26200-SP0",
-    "embedding_model": "BAAI/bge-small-en-v1.5"
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "llm_provider": "openai",
+    "llm_base_url": "https://integrate.api.nvidia.com/v1",
+    "generation_model": "nvidia/nemotron-3-super-120b-a12b",
+    "cheap_model": "nvidia/nemotron-3-super-120b-a12b"
   },
   "metrics": {
     "count": 6,
@@ -147,9 +151,9 @@
     "ranking_miss": 1
   },
   "latency": {
-    "p50_ms": 21.37,
-    "p95_ms": 10144.15,
-    "total_seconds": 10.29
+    "p50_ms": 24.5,
+    "p95_ms": 11921.62,
+    "total_seconds": 12.09
   },
   "cost": {
     "calls": 0,
@@ -169,7 +173,11 @@
       "answerable": true,
       "expected_version": "1.28",
       "retrieved_chunk_ids": [
-        756
+        756,
+        750,
+        752,
+        749,
+        758
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -188,13 +196,13 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 10144.15,
+      "latency_ms": 11921.62,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 330.46,
-        "dense": 9808.18,
-        "lexical": 5.32,
-        "fusion": 0.01
+        "version_detection": 33.16,
+        "dense": 11879.4,
+        "lexical": 8.75,
+        "fusion": 0.03
       }
     },
     {
@@ -205,7 +213,10 @@
       "expected_version": "1.28",
       "retrieved_chunk_ids": [
         815,
-        816
+        816,
+        1038,
+        891,
+        890
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -224,13 +235,13 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 20.9,
+      "latency_ms": 22.93,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.27,
-        "dense": 17.75,
-        "lexical": 1.66,
-        "fusion": 0.01
+        "version_detection": 0.66,
+        "dense": 16.21,
+        "lexical": 5.8,
+        "fusion": 0.02
       }
     },
     {
@@ -263,13 +274,13 @@
       "citation_precision": null,
       "attribution": "ranking_miss",
       "attribution_detail": "gold was retrieved (dense rank 7) but cut",
-      "latency_ms": 20.23,
+      "latency_ms": 22.54,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.83,
-        "dense": 17.36,
-        "lexical": 1.59,
-        "fusion": 0.01
+        "version_detection": 0.58,
+        "dense": 15.72,
+        "lexical": 5.33,
+        "fusion": 0.02
       }
     },
     {
@@ -280,7 +291,10 @@
       "expected_version": "1.28",
       "retrieved_chunk_ids": [
         815,
-        820
+        820,
+        794,
+        813,
+        819
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -299,13 +313,13 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 23.56,
+      "latency_ms": 21.28,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.28,
-        "dense": 20.35,
-        "lexical": 1.68,
-        "fusion": 0.01
+        "version_detection": 0.47,
+        "dense": 14.92,
+        "lexical": 5.54,
+        "fusion": 0.02
       }
     },
     {
@@ -318,8 +332,8 @@
         740,
         733,
         744,
-        731,
-        734
+        734,
+        731
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -338,12 +352,12 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 22.61,
+      "latency_ms": 22.81,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.89,
-        "dense": 17.84,
-        "lexical": 3.62,
+        "version_detection": 0.61,
+        "dense": 15.71,
+        "lexical": 6.26,
         "fusion": 0.02
       }
     },
@@ -356,9 +370,9 @@
       "retrieved_chunk_ids": [
         756,
         957,
+        567,
         558,
-        952,
-        557
+        952
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -377,13 +391,13 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 21.37,
+      "latency_ms": 24.5,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.13,
-        "dense": 18.51,
-        "lexical": 1.55,
-        "fusion": 0.01
+        "version_detection": 0.76,
+        "dense": 17.22,
+        "lexical": 6.33,
+        "fusion": 0.02
       }
     },
     {
@@ -393,11 +407,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18840,
-        18823,
-        18835,
-        18420,
-        17975
+        631,
+        537,
+        632,
+        895,
+        639
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -408,7 +422,7 @@
       "ndcg@10": 0.0,
       "answer": "",
       "abstained": false,
-      "version_used": "1.30",
+      "version_used": "1.28",
       "judge_score": null,
       "judge_passed": null,
       "judge_reason": "",
@@ -416,13 +430,13 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 19.83,
+      "latency_ms": 28.9,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.98,
-        "dense": 17.22,
-        "lexical": 1.51,
-        "fusion": 0.01
+        "version_detection": 0.69,
+        "dense": 20.52,
+        "lexical": 7.56,
+        "fusion": 0.02
       }
     },
     {
@@ -432,11 +446,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        20647,
-        20650,
-        18182,
-        20644,
-        20325
+        755,
+        758,
+        752,
+        750,
+        753
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -447,7 +461,7 @@
       "ndcg@10": 0.0,
       "answer": "",
       "abstained": false,
-      "version_used": "1.30",
+      "version_used": "1.28",
       "judge_score": null,
       "judge_passed": null,
       "judge_reason": "",
@@ -455,12 +469,12 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 19.36,
+      "latency_ms": 27.02,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.7,
-        "dense": 17.12,
-        "lexical": 1.43,
+        "version_detection": 0.55,
+        "dense": 19.25,
+        "lexical": 7.09,
         "fusion": 0.02
       }
     }

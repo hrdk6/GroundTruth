@@ -33,10 +33,25 @@ log = get_logger(__name__)
 
 Verdict = Literal["supported", "partially", "unsupported"]
 
+# Citation markers, in every bracket style a model actually emits. Models
+# trained on multilingual corpora produce the full-width CJK forms often
+# enough that matching only ASCII `[n]` silently scores a correctly-cited
+# answer as having no citations at all -- which then reads as a hallucination.
+_CITATION_ANY = re.compile(r"[\[【［]\s*(\d+)\s*[\]】］]")  # noqa: RUF001 - the full-width brackets are the point
 _CITATION = re.compile(r"\[(\d+)\]")
+
+# A fragment that is nothing but citation markers and punctuation.
+_CITATION_ONLY = re.compile(r"^[\s.,;:]*(?:\[\d+\][\s.,;:]*)+$")
+
 # Split on sentence enders, but not on the dot inside "v1.28", "e.g.", or
 # "kube-apiserver.yaml" -- version strings and file names are everywhere here.
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(`\[])")
+
+
+def normalize_citations(text: str) -> str:
+    """Rewrite every citation-marker style to the canonical `[n]`."""
+    return _CITATION_ANY.sub(lambda m: f"[{m.group(1)}]", text)
+
 
 # Sentences that assert nothing about Kubernetes and so cannot be unsupported.
 _NON_FACTUAL = re.compile(
@@ -102,8 +117,15 @@ class VerificationReport:
 
 
 def split_sentences(answer: str) -> list[tuple[str, list[int]]]:
-    """Split an answer into `(sentence, cited indices)` pairs."""
-    text = " ".join(answer.split())
+    """Split an answer into `(sentence, cited indices)` pairs.
+
+    A citation placed after the final full stop -- `...253 characters. [3]` --
+    would otherwise be split off as its own "sentence", leaving the real claim
+    with no citation and scoring it unsupported. That punished the model for
+    citing correctly, so a citation-only fragment is folded back into the
+    sentence it belongs to.
+    """
+    text = " ".join(normalize_citations(answer).split())
     if not text:
         return []
 
@@ -112,8 +134,17 @@ def split_sentences(answer: str) -> list[tuple[str, list[int]]]:
         sentence = raw.strip()
         if not sentence:
             continue
-        citations = [int(n) for n in _CITATION.findall(sentence)]
-        pairs.append((sentence, citations))
+
+        if _CITATION_ONLY.match(sentence) and pairs:
+            previous, previous_citations = pairs[-1]
+            merged = f"{previous} {sentence}".strip()
+            pairs[-1] = (
+                merged,
+                previous_citations + [int(n) for n in _CITATION.findall(sentence)],
+            )
+            continue
+
+        pairs.append((sentence, [int(n) for n in _CITATION.findall(sentence)]))
     return pairs
 
 

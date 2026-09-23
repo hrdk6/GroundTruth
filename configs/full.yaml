@@ -1,17 +1,20 @@
-# Experiment 5 / the shipping configuration.
+# The shipping configuration.
 #
-# Against: whichever retrieval config won Phase 3. Adds everything from Phase 4:
-# multi-hop decomposition, claim verification with regenerate-or-abstain, and
-# cross-version conflict detection.
+# Retrieval is `hybrid`, which won Phase 3. **Reranking is deliberately OFF**:
+# the hybrid_rerank experiment measured it making retrieval worse on every
+# metric (recall@5 0.786 -> 0.714) while costing 93x the latency, so it was
+# reverted. See EXPERIMENTS.md. Keeping it enabled here "because the spec lists
+# it" would contradict the evidence this project exists to produce.
 #
-# Only turn decomposition on if the Phase 3 experiment showed it helping
-# `multi_hop` more than it hurt everything else -- splitting a single-hop
-# question dilutes the candidate set with off-topic chunks.
+# On top of that retrieval, this adds the Phase 4 generation work: claim
+# verification with regenerate-or-abstain, cross-version conflict notes, and
+# multi-hop decomposition.
 name: full
 description: >
-  The complete pipeline: structure-aware chunking, hybrid retrieval with RRF,
-  cross-encoder reranking, query rewriting, multi-hop decomposition, grounded
+  The shipping pipeline: structure-aware chunking, hybrid dense + lexical
+  retrieval fused with RRF, query rewriting, multi-hop decomposition, grounded
   generation with per-sentence claim verification, and version conflict notes.
+  No reranking -- it was measured and reverted.
 
 chunking:
   chunker: structure_aware
@@ -30,7 +33,8 @@ retrieval:
   dense: {enabled: true, k: 20}
   lexical: {enabled: true, k: 20, text_search_config: english}
   fusion: {enabled: true, rrf_k: 60}
-  rerank: {enabled: true, model: BAAI/bge-reranker-base, batch_size: 32}
+  # Measured harmful in the hybrid_rerank experiment; see EXPERIMENTS.md.
+  rerank: {enabled: false}
   query_rewrite: {enabled: true, keep_original_for_lexical: true}
   decomposition: {enabled: true, max_subqueries: 3}
   k_final: 6

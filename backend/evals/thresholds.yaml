@@ -14,7 +14,7 @@
 # red build green is how a regression gate becomes decoration.
 
 dataset: fixture_golden.jsonl
-config: configs/baseline.yaml
+config: configs/hybrid.yaml
 split: all
 mode: retrieval
 

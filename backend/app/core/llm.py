@@ -327,10 +327,19 @@ class OpenAICompatibleProvider:
     * Reasoning models return their chain of thought in a separate
       `reasoning_content` field. We read `content` only -- the reasoning is
       not the answer, and concatenating them would corrupt every strict-JSON
-      response the judge and verifier depend on.
+      response the judge and verifier depend on. See `MIN_MAX_TOKENS` for the
+      budget consequence of that split.
     """
 
     name = "openai"
+
+    # Reasoning models spend output tokens on a chain of thought the caller
+    # never sees, then emit the answer. `max_tokens` caps the *total*, so a
+    # budget sized for the visible answer (128 for a JSON verdict) can be
+    # consumed entirely by reasoning, returning a truncated fragment of the
+    # thinking instead. Raising the ceiling costs nothing -- billing is on
+    # tokens produced, not on the cap -- so the floor is generous.
+    MIN_MAX_TOKENS = 2048
 
     def __init__(self, api_key: str, base_url: str | None) -> None:
         try:
@@ -363,7 +372,7 @@ class OpenAICompatibleProvider:
         request: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "max_tokens": max_tokens,
+            "max_tokens": max(max_tokens, self.MIN_MAX_TOKENS),
         }
         if temperature is not None:
             request["temperature"] = temperature
@@ -384,14 +393,21 @@ class OpenAICompatibleProvider:
         )
 
 
-def _is_rate_limit(exc: Exception) -> bool:
-    """Detect a rate-limit error without importing every SDK's exception type."""
+# 429 is a rate limit; 5xx and connection errors are the free tier being
+# temporarily overloaded, which it does regularly. All are worth retrying.
+_RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
+_RETRYABLE_TEXT = ("rate limit", "overloaded", "timeout", "connection error", "temporarily")
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Detect a transient failure without importing every SDK's exception type."""
     status = getattr(exc, "status_code", None) or getattr(
         getattr(exc, "response", None), "status_code", None
     )
-    if status == 429:
+    if status in _RETRYABLE_STATUS:
         return True
-    return "rate limit" in str(exc).lower() or "429" in str(exc)
+    text = str(exc).lower()
+    return any(marker in text for marker in _RETRYABLE_TEXT)
 
 
 # ---------------------------------------------------------------------------
@@ -567,9 +583,10 @@ class LLMClient:
     ) -> ProviderResult:
         """Call the provider, backing off on rate limits.
 
-        Free tiers are rate limited (NVIDIA NIM allows 40 requests/minute), and
-        an eval makes hundreds of sequential calls. Without a backoff a long
-        run dies partway through and the partial result is worthless.
+        Free tiers are rate limited (NVIDIA NIM allows 40 requests/minute) and
+        regularly return 503 when busy. An eval makes hundreds of sequential
+        calls, so without a backoff a long run dies partway through and the
+        partial result is worthless.
         """
         delay = 2.0
         for attempt in range(1, attempts + 1):
@@ -584,7 +601,7 @@ class LLMClient:
                 )
                 return result
             except Exception as exc:
-                if attempt == attempts or not _is_rate_limit(exc):
+                if attempt == attempts or not _is_retryable(exc):
                     raise
                 log.warning("llm.rate_limited", attempt=attempt, sleeping=delay, model=model)
                 time.sleep(delay)

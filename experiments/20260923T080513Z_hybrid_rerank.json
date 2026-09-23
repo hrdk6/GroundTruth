@@ -1,18 +1,18 @@
 {
-  "timestamp": "2026-09-23T03:39:17.009884+00:00",
+  "timestamp": "2026-09-23T08:05:13.869215+00:00",
   "mode": "retrieval",
   "split": "test",
   "dataset_version": "golden_v1",
   "dataset_size": 13,
-  "git_sha": "bee198a23eedcce57ed3069e37ce0c2974d4485b",
+  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
   "git_dirty": true,
   "config": {
-    "name": "hybrid",
-    "config_hash": "b869490dcc89",
+    "name": "hybrid_rerank",
+    "config_hash": "0ab0b7961986",
     "chunker_name": "structure_aware-512-64",
     "values": {
-      "name": "hybrid",
-      "description": "structure_aware chunking with dense + Postgres full-text retrieval combined by Reciprocal Rank Fusion (k=60). No reranking.\n",
+      "name": "hybrid_rerank",
+      "description": "hybrid retrieval with a bge-reranker-base cross-encoder over the fused candidates, keeping the top 5.\n",
       "chunking": {
         "chunker": "structure_aware",
         "max_tokens": 512,
@@ -43,7 +43,7 @@
           "rrf_k": 60
         },
         "rerank": {
-          "enabled": false,
+          "enabled": true,
           "model": "BAAI/bge-reranker-base",
           "batch_size": 32
         },
@@ -82,16 +82,20 @@
   "environment": {
     "python": "3.12.12",
     "platform": "Windows-11-10.0.26200-SP0",
-    "embedding_model": "BAAI/bge-small-en-v1.5"
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "llm_provider": "openai",
+    "llm_base_url": "https://integrate.api.nvidia.com/v1",
+    "generation_model": "nvidia/nemotron-3-super-120b-a12b",
+    "cheap_model": "nvidia/nemotron-3-super-120b-a12b"
   },
   "metrics": {
     "count": 10,
     "recall@1": 0.4,
-    "recall@5": 0.7,
-    "recall@10": 0.7,
-    "mrr": 0.5167,
-    "ndcg@10": 0.5631,
-    "partial_recall@10": 0.7,
+    "recall@5": 0.8,
+    "recall@10": 0.8,
+    "mrr": 0.5833,
+    "ndcg@10": 0.6393,
+    "partial_recall@10": 0.8,
     "abstention_precision": null,
     "abstention_recall": null,
     "false_answer_rate": null,
@@ -100,11 +104,11 @@
   "metrics_by_category": {
     "exact_term": {
       "count": 3,
-      "recall@1": 0.3333,
+      "recall@1": 0.6667,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "mrr": 0.6111,
-      "ndcg@10": 0.7103,
+      "mrr": 0.8333,
+      "ndcg@10": 0.877,
       "partial_recall@10": 1.0,
       "abstention_precision": null,
       "abstention_recall": null,
@@ -112,11 +116,11 @@
     },
     "factual": {
       "count": 4,
-      "recall@1": 0.5,
+      "recall@1": 0.25,
       "recall@5": 0.75,
       "recall@10": 0.75,
-      "mrr": 0.5833,
-      "ndcg@10": 0.625,
+      "mrr": 0.5,
+      "ndcg@10": 0.5655,
       "partial_recall@10": 0.75,
       "abstention_precision": null,
       "abstention_recall": null,
@@ -158,11 +162,11 @@
     "version_sensitive": {
       "count": 1,
       "recall@1": 0.0,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "partial_recall@10": 0.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.3333,
+      "ndcg@10": 0.5,
+      "partial_recall@10": 1.0,
       "abstention_precision": null,
       "abstention_recall": null,
       "false_answer_rate": null,
@@ -170,13 +174,12 @@
     }
   },
   "attribution": {
-    "retrieval_miss": 2,
-    "ranking_miss": 1
+    "retrieval_miss": 2
   },
   "latency": {
-    "p50_ms": 21.93,
-    "p95_ms": 36.73,
-    "total_seconds": 10.29
+    "p50_ms": 3360.7,
+    "p95_ms": 5191.16,
+    "total_seconds": 66.96
   },
   "cost": {
     "calls": 0,
@@ -196,167 +199,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19739,
-        20700,
-        20704,
-        20699,
-        19738
-      ],
-      "best_rank": 1,
-      "gold_found": 1,
-      "gold_total": 1,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "ndcg@10": 1.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "none",
-      "attribution_detail": "",
-      "latency_ms": 10022.63,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 324.92,
-        "dense": 9688.97,
-        "lexical": 8.39,
-        "fusion": 0.03
-      }
-    },
-    {
-      "item_id": "factual-ee66e3b5f9",
-      "category": "factual",
-      "question": "What protocol do Services use if none is specified?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        19084,
-        19106,
-        19088,
-        19100,
-        18985
-      ],
-      "best_rank": null,
-      "gold_found": 0,
-      "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "retrieval_miss",
-      "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 36.73,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.24,
-        "dense": 31.72,
-        "lexical": 1.84,
-        "fusion": 0.02
-      }
-    },
-    {
-      "item_id": "factual-a60cd929a5",
-      "category": "factual",
-      "question": "How many old ReplicaSets does a Deployment keep by default?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        19491,
-        19554,
-        19505,
-        19570,
-        19469
-      ],
-      "best_rank": 3,
-      "gold_found": 1,
-      "gold_total": 1,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "mrr": 0.3333,
-      "ndcg@10": 0.5,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "none",
-      "attribution_detail": "",
-      "latency_ms": 21.93,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.61,
-        "dense": 18.37,
-        "lexical": 1.7,
-        "fusion": 0.02
-      }
-    },
-    {
-      "item_id": "factual-fbe91ee4af",
-      "category": "factual",
-      "question": "Where does kubectl look for its configuration file by default?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        18214,
-        21104,
-        21325,
-        20779,
-        18217
-      ],
-      "best_rank": 1,
-      "gold_found": 1,
-      "gold_total": 1,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "ndcg@10": 1.0,
-      "answer": "",
-      "abstained": false,
-      "version_used": "1.30",
-      "judge_score": null,
-      "judge_passed": null,
-      "judge_reason": "",
-      "support_fraction": null,
-      "citation_precision": null,
-      "attribution": "none",
-      "attribution_detail": "",
-      "latency_ms": 22.37,
-      "cost_usd": 0.0,
-      "stage_timings_ms": {
-        "version_detection": 1.03,
-        "dense": 17.97,
-        "lexical": 3.06,
-        "fusion": 0.04
-      }
-    },
-    {
-      "item_id": "exact_term-9d856cfa78",
-      "category": "exact_term",
-      "question": "Which field limits the number of old ReplicaSets a Deployment retains?",
-      "answerable": true,
-      "expected_version": "1.30",
-      "retrieved_chunk_ids": [
-        19491,
-        19505,
-        19628,
-        19469,
-        19470
+        6493,
+        5264,
+        5035,
+        6224,
+        6229
       ],
       "best_rank": 2,
       "gold_found": 1,
@@ -375,13 +222,174 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 18.98,
+      "latency_ms": 26900.02,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.22,
-        "dense": 15.86,
-        "lexical": 1.64,
-        "fusion": 0.02
+        "version_detection": 34.44,
+        "dense": 14012.63,
+        "lexical": 6.01,
+        "fusion": 0.03,
+        "rerank": 12846.67
+      }
+    },
+    {
+      "item_id": "factual-ee66e3b5f9",
+      "category": "factual",
+      "question": "What protocol do Services use if none is specified?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        3752,
+        6510,
+        4616,
+        4605,
+        4614
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 3826.68,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.89,
+        "dense": 21.53,
+        "lexical": 1.97,
+        "fusion": 0.02,
+        "rerank": 3799.16
+      }
+    },
+    {
+      "item_id": "factual-a60cd929a5",
+      "category": "factual",
+      "question": "How many old ReplicaSets does a Deployment keep by default?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        5016,
+        5030,
+        4995,
+        4994,
+        4989
+      ],
+      "best_rank": 2,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 3350.12,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.6,
+        "dense": 21.46,
+        "lexical": 1.89,
+        "fusion": 0.03,
+        "rerank": 3324.8
+      }
+    },
+    {
+      "item_id": "factual-fbe91ee4af",
+      "category": "factual",
+      "question": "Where does kubectl look for its configuration file by default?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        3739,
+        5343,
+        6629,
+        5779,
+        6969
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 5191.16,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.53,
+        "dense": 21.56,
+        "lexical": 2.77,
+        "fusion": 0.03,
+        "rerank": 5165.07
+      }
+    },
+    {
+      "item_id": "exact_term-9d856cfa78",
+      "category": "exact_term",
+      "question": "Which field limits the number of old ReplicaSets a Deployment retains?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        5016,
+        5030,
+        4994,
+        4995,
+        5025
+      ],
+      "best_rank": 2,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 3685.32,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.26,
+        "dense": 22.76,
+        "lexical": 1.97,
+        "fusion": 0.02,
+        "rerank": 3658.96
       }
     },
     {
@@ -391,19 +399,19 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19095,
-        19094,
-        19093,
-        19065,
-        19096
+        4618,
+        4619,
+        4621,
+        5368,
+        4620
       ],
-      "best_rank": 3,
+      "best_rank": 1,
       "gold_found": 1,
       "gold_total": 1,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "mrr": 0.3333,
-      "ndcg@10": 0.5,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
       "answer": "",
       "abstained": false,
       "version_used": "1.30",
@@ -414,13 +422,14 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 22.15,
+      "latency_ms": 2704.89,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.02,
-        "dense": 18.64,
-        "lexical": 2.22,
-        "fusion": 0.01
+        "version_detection": 1.46,
+        "dense": 22.58,
+        "lexical": 2.17,
+        "fusion": 0.02,
+        "rerank": 2678.37
       }
     },
     {
@@ -430,11 +439,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19065,
-        19095,
-        19051,
-        19064,
-        19055
+        4590,
+        4576,
+        4589,
+        4580,
+        4579
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -453,13 +462,14 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 20.04,
+      "latency_ms": 2738.1,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.0,
-        "dense": 17.32,
-        "lexical": 1.4,
-        "fusion": 0.01
+        "version_detection": 1.2,
+        "dense": 21.34,
+        "lexical": 1.48,
+        "fusion": 0.01,
+        "rerank": 2713.71
       }
     },
     {
@@ -469,11 +479,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19430,
-        19431,
-        19441,
-        19440,
-        19438
+        4955,
+        4953,
+        4965,
+        4956,
+        6855
       ],
       "best_rank": 1,
       "gold_found": 1,
@@ -492,13 +502,14 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "",
-      "latency_ms": 19.46,
+      "latency_ms": 3368.13,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.82,
-        "dense": 16.66,
-        "lexical": 1.66,
-        "fusion": 0.01
+        "version_detection": 1.33,
+        "dense": 18.92,
+        "lexical": 1.59,
+        "fusion": 0.02,
+        "rerank": 3345.99
       }
     },
     {
@@ -508,11 +519,11 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        18719,
-        19738,
-        18718,
-        18723,
-        18123
+        4244,
+        4243,
+        5209,
+        4248,
+        3649
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -531,13 +542,14 @@
       "citation_precision": null,
       "attribution": "retrieval_miss",
       "attribution_detail": "gold evidence was in no candidate set",
-      "latency_ms": 22.88,
+      "latency_ms": 2401.19,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.08,
-        "dense": 18.88,
-        "lexical": 1.56,
-        "fusion": 0.01
+        "version_detection": 1.46,
+        "dense": 19.45,
+        "lexical": 1.83,
+        "fusion": 0.02,
+        "rerank": 2376.31
       }
     },
     {
@@ -547,11 +559,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18686,
-        18415,
-        21379,
-        20002,
-        18413
+        3934,
+        3938,
+        5527,
+        4211,
+        4135
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -570,13 +582,14 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 19.98,
+      "latency_ms": 2639.05,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.92,
-        "dense": 17.47,
-        "lexical": 1.48,
-        "fusion": 0.01
+        "version_detection": 1.28,
+        "dense": 19.03,
+        "lexical": 1.64,
+        "fusion": 0.01,
+        "rerank": 2616.94
       }
     },
     {
@@ -586,11 +599,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        18409,
-        19957,
-        18415,
-        18116,
-        18413
+        3934,
+        4896,
+        3938,
+        3641,
+        3561
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -609,13 +622,14 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 19.0,
+      "latency_ms": 3885.6,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 1.08,
-        "dense": 16.0,
-        "lexical": 1.81,
-        "fusion": 0.02
+        "version_detection": 1.73,
+        "dense": 18.22,
+        "lexical": 1.64,
+        "fusion": 0.01,
+        "rerank": 3863.87
       }
     },
     {
@@ -625,11 +639,11 @@
       "answerable": false,
       "expected_version": null,
       "retrieved_chunk_ids": [
-        19958,
-        19957,
-        18903,
-        19973,
-        19975
+        4208,
+        5886,
+        5885,
+        5902,
+        5899
       ],
       "best_rank": null,
       "gold_found": 0,
@@ -648,13 +662,14 @@
       "citation_precision": null,
       "attribution": "none",
       "attribution_detail": "abstention not evaluated in retrieval-only mode",
-      "latency_ms": 21.06,
+      "latency_ms": 2906.48,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.95,
-        "dense": 18.58,
-        "lexical": 1.43,
-        "fusion": 0.01
+        "version_detection": 1.3,
+        "dense": 22.91,
+        "lexical": 1.25,
+        "fusion": 0.01,
+        "rerank": 2880.89
       }
     },
     {
@@ -664,19 +679,19 @@
       "answerable": true,
       "expected_version": "1.30",
       "retrieved_chunk_ids": [
-        19769,
-        18875,
-        19774,
-        19770,
-        19775
+        6365,
+        5299,
+        5291,
+        6453,
+        4400
       ],
-      "best_rank": null,
-      "gold_found": 0,
+      "best_rank": 3,
+      "gold_found": 1,
       "gold_total": 1,
-      "recall@5": 0.0,
-      "recall@10": 0.0,
-      "mrr": 0.0,
-      "ndcg@10": 0.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.3333,
+      "ndcg@10": 0.5,
       "answer": "",
       "abstained": false,
       "version_used": "1.30",
@@ -685,15 +700,16 @@
       "judge_reason": "",
       "support_fraction": null,
       "citation_precision": null,
-      "attribution": "ranking_miss",
-      "attribution_detail": "gold was retrieved (dense rank 10) but cut",
-      "latency_ms": 22.05,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 3360.7,
       "cost_usd": 0.0,
       "stage_timings_ms": {
-        "version_detection": 0.8,
-        "dense": 18.21,
-        "lexical": 1.7,
-        "fusion": 0.02
+        "version_detection": 1.12,
+        "dense": 21.73,
+        "lexical": 1.58,
+        "fusion": 0.01,
+        "rerank": 3336.05
       }
     }
   ]

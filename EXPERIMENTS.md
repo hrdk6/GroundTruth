@@ -3,45 +3,47 @@
 Every number here is copied from a file in `experiments/`. The README results
 table is generated from those same files by `scripts/generate_results_table.py`.
 
-## Setup for this series
+## Setup
 
 | | |
 |---|---|
 | Corpus | Kubernetes docs, `concepts/` + `tasks/`, versions **1.26 and 1.30** |
-| Indexed | 639 documents · 3,905 chunks (`fixed`) / 6,929 chunks (`structure_aware`) |
+| Indexed | 639 documents · 3,905 chunks (`fixed`) / 7,277 chunks (`structure_aware`) |
 | Golden set | `golden_v1.jsonl`, 32 curated items · dev 19 / test 13 |
-| Mode | `retrieval` — no API key, no model calls, $0.00 per run |
+| Database | PostgreSQL 16.2 + pgvector via `pgserver` (no Docker) |
+| LLM | `nvidia/nemotron-3-super-120b-a12b` on NVIDIA NIM's free tier, $0.00 |
 
-Two scoping notes, because they bound what these numbers mean:
+Three caveats that bound everything below. They are not boilerplate — each one
+changes how much weight a number deserves.
 
-- **The corpus is a subset.** Embedding all 3,102 pages across three branches on
-  CPU ran for over two CPU-hours without finishing, so ingestion was scoped to
-  `concepts/` and `tasks/` in two versions. That is 639 real pages with real
-  distractors — enough for the comparisons below to mean something, and not
-  the full corpus. The `include` filter used is recorded on every ingestion run.
-- **The golden set is 32 items, not the ~300 the spec targets**, and it was
-  **authored by reading the documentation**, not LLM-generated: the generators
-  in `evals/dataset/generate.py` need an `ANTHROPIC_API_KEY` this environment
-  does not have. Every quote is verified to exist in the parsed source before
-  becoming gold. With 19 dev items, one item is worth ~5 points of recall — so
-  read the direction of these results, not the third decimal place.
+1. **The golden set is 32 items.** At 19 dev items **one item is worth ~5 points
+   of recall**. Read directions, not third decimals. Anything under ~0.10 is one
+   or two items.
+2. **The corpus is a subset.** Embedding all 3,102 pages on CPU ran over two
+   CPU-hours without finishing, so ingestion was scoped to `concepts/` and
+   `tasks/` in two versions. Every ingestion run records the filter it used.
+3. **The judge and the answerer are the same model.** `answer_correctness` is
+   Nemotron grading Nemotron's own output. That is self-evaluation, and it
+   inflates. It is why judge validation (below) is the outstanding gap, not a
+   formality.
 
 ---
 
-## 2026-09-23 — `structure_aware`
+## Phase 3 — retrieval
 
-**Baseline:** `baseline` (fixed 512-token windows, dense-only)
-**Change:** chunker `fixed` → `structure_aware`. Nothing else.
+Four configs, each moving exactly one variable. Retrieval-only mode: no model
+calls, no key, $0.00 per run.
 
-| Metric (dev) | baseline | structure_aware | Δ |
-|---|---|---|---|
-| recall@5 | 0.286 | **0.786** | **+0.500** |
-| recall@1 | 0.214 | 0.286 | +0.072 |
-| MRR | 0.274 | 0.500 | +0.226 |
-| nDCG@10 | 0.308 | 0.712 | +0.404 |
-| `retrieval_miss` | 9 | 2 | −7 |
+| Config | recall@5 dev | recall@5 test | MRR dev | Verdict |
+|---|---|---|---|---|
+| `baseline` | 0.286 | 0.100 | 0.274 | — |
+| `structure_aware` | **0.786** | 0.700 | 0.500 | kept |
+| `hybrid` | **0.786** | 0.700 | **0.583** | kept |
+| `hybrid_rerank` | 0.714 | 0.800 | 0.530 | **reverted** |
 
-Per category, recall@5:
+### `structure_aware` — the chunker (+0.500 recall@5)
+
+Per category, dev recall@5:
 
 | Category | baseline | structure_aware |
 |---|---|---|
@@ -49,130 +51,149 @@ Per category, recall@5:
 | `exact_term` | 0.200 | **0.800** |
 | `version_sensitive` | 0.000 | **1.000** |
 | `factual` | 0.750 | 0.750 |
-| `multi_hop` | 0.000 | 0.000 |
 
-**Verdict: kept.** The largest single improvement in the series.
+The cleanest result in the series, because of what *didn't* move. `factual` is
+unchanged at 0.750 — prose questions never depended on block integrity, so
+fixing block integrity did nothing for them. Meanwhile `table_or_code` went from
+**0.000 to 1.000**: under fixed windows not a single question whose answer lived
+in a table or code block could be answered, because no chunk contained a whole
+one. A change that had lifted everything uniformly would have been suspicious.
 
-**Why.** The hypothesis was that fixed windows cut YAML examples and tables in
-half, making them unretrievable as a unit — and the per-category split says
-exactly that. `table_or_code` went from **0.000 to 1.000**: under the baseline,
-*not one* question whose answer lived in a table or a code block could be
-answered, because no chunk contained a whole one. `factual` did not move at
-all, which is the control: prose questions never depended on block integrity,
-so fixing block integrity did nothing for them. A change that had improved
-everything uniformly would have been suspicious.
+Cost: chunks rose 3,905 → 7,277 (+86%), ingestion 379s → 547s.
 
-Chunk count rose from 3,905 to 6,929 (+77%) for the same documents, so this
-costs index size and ingestion time (379s → 613s).
+### `hybrid` — lexical + RRF (rank, not recall)
 
----
+recall@5 did not move at all. recall@1 rose 0.286 → 0.429 and MRR 0.500 → 0.583.
+The hypothesis was that lexical search would find exact strings dense retrieval
+misses and lift `exact_term` recall; instead the gold chunks were *already*
+being retrieved, and lexical evidence pushed them to the top.
 
-## 2026-09-23 — `hybrid`
+Worth stating plainly rather than filing under "hybrid retrieval helped". The
+likely reason recall didn't move: at 639 documents, dense retrieval with k=20
+already had the gold chunk in its candidate set. On a corpus ten times larger
+this could differ — untested.
 
-**Baseline:** `structure_aware`
-**Change:** added the Postgres full-text leg and RRF fusion (k=60).
+Cost: p50 23ms → 50ms.
 
-| Metric (dev) | structure_aware | hybrid | Δ |
-|---|---|---|---|
-| recall@5 | 0.786 | 0.786 | **±0** |
-| recall@1 | 0.286 | **0.429** | **+0.143** |
-| MRR | 0.500 | **0.583** | **+0.083** |
-| nDCG@10 | 0.712 | **0.774** | **+0.062** |
-| p50 latency | 23ms | 50ms | +27ms |
+### `hybrid_rerank` — the cross-encoder ❌
 
-**Verdict: kept** — but not for the reason predicted.
+| Metric | hybrid | hybrid_rerank |
+|---|---|---|
+| recall@5 dev | 0.786 | **0.714** |
+| recall@5 test | 0.700 | **0.800** |
+| `version_sensitive` dev | 1.000 | **0.000** |
+| `ranking_miss` | 0 | **1** |
+| p50 latency | 50ms | **4,678ms (93×)** |
 
-**Why.** The hypothesis was that lexical search would find exact strings dense
-retrieval misses, and so lift `exact_term` *recall*. It did not: recall@5 is
-identical, and no category's recall@5 changed. What moved was **rank**.
-recall@1 rose by 0.143 and MRR by 0.083, meaning the gold chunks were already
-being retrieved — lexical evidence pushed them to the top of the list.
+**Reverted — but the honest version is messier than "it made things worse".**
+It hurt on dev and *helped* on test. Both are one-item swings on 19 and 13
+items respectively, which is exactly the noise floor caveat above. The
+measurement does not settle it.
 
-That is a real improvement (an answer built from the top 5 does better when the
-right chunk is first) but it is a different improvement from the one predicted,
-and worth stating plainly rather than filing under "hybrid retrieval helped".
-The likely reason recall did not move: at 639 documents, dense retrieval with
-k=20 already had the gold chunk in the candidate set for everything it was
-going to find. On a corpus ten times larger, the recall story would probably
-differ — untested.
+What does settle it is the other two columns. The attribution system flagged a
+new `ranking_miss` — meaning the gold chunk was retrieved and then demoted out
+of the top 5, which is precisely the failure a reranker is supposed to fix. And
+the `version_sensitive` item went to 0.000: its gold quote is
+`[Feature state: beta]`, a four-word status marker, and a cross-encoder scoring
+query-document *semantic* relevance rates that poorly against a
+natural-language question even though it is the right chunk.
 
-Cost: 2.2× the latency, still only 50ms.
+A 93× latency cost needs a clear win to justify. There isn't one, so it is off
+in `configs/full.yaml`, with a comment saying why. Keeping it enabled because
+the spec lists it would contradict the evidence this project exists to produce.
 
----
-
-## 2026-09-23 — `hybrid_rerank` ❌
-
-**Baseline:** `hybrid`
-**Change:** added a `bge-reranker-base` cross-encoder over the fused candidates.
-
-| Metric (dev) | hybrid | hybrid_rerank | Δ |
-|---|---|---|---|
-| recall@5 | 0.786 | 0.714 | **−0.072** |
-| recall@1 | 0.429 | 0.286 | **−0.143** |
-| MRR | 0.583 | 0.530 | **−0.053** |
-| nDCG@10 | 0.774 | 0.692 | **−0.082** |
-| `version_sensitive` recall@5 | 1.000 | **0.000** | **−1.000** |
-| `ranking_miss` | 0 | **1** | +1 |
-| p50 latency | 50ms | **4,678ms** | **93×** |
-
-**Verdict: reverted.** Not shipped; `hybrid` remains the best configuration.
-
-**Why.** This was the change most expected to help, and it hurt on every metric
-while costing 93× the latency. Two things are worth separating:
-
-1. **The attribution system caught the mechanism.** A `ranking_miss` appeared
-   where there had been none. That label means the gold chunk *was* in the
-   candidate set and the reranker demoted it out of the top 5 — which is
-   precisely the failure mode a reranker is supposed to fix. Without
-   per-stage attribution this would have looked like "recall went down" with
-   no explanation.
-2. **The version-sensitive item is the clearest casualty.** Its recall went
-   from 1.000 to 0.000. That item's gold quote is `[Feature state: beta]` —
-   a short, low-information string. A cross-encoder scores query-document
-   *semantic* relevance, and a chunk whose distinguishing content is a
-   four-word status marker scores poorly against a natural-language question,
-   even though it is exactly the right chunk. The reranker is optimising for
-   something subtly different from what this corpus needs.
-
-The honest reading is that `bge-reranker-base` is not well matched to short,
-identifier-dense documentation chunks, and that a 93× latency cost would have
-needed a large win to justify even if it had helped. With 19 dev items a
-−0.072 swing is one or two items, so the *magnitude* is noisy — but the
-direction, the latency, and the new `ranking_miss` all point the same way, and
-none of them argue for keeping it.
-
-**What would change the verdict:** a reranker trained on technical retrieval,
-or reranking only when the fused scores are close. Neither is tested here.
+**What would change the verdict:** a reranker trained on technical retrieval, or
+reranking only when the fused scores are close. Neither is tested.
 
 ---
 
-## Held-out test split
+## Phase 4 — generation
 
-Run once, after the dev comparisons were finished.
+Config `full`: `hybrid` retrieval plus query rewriting, multi-hop decomposition,
+per-sentence claim verification with regenerate-or-abstain, and cross-version
+conflict notes.
 
-| Metric (test, 13 items) | baseline | hybrid | Δ |
-|---|---|---|---|
-| recall@5 | 0.100 | **0.700** | **+0.600** |
-| recall@1 | 0.100 | 0.400 | +0.300 |
-| MRR | 0.100 | 0.517 | +0.417 |
-| nDCG@10 | 0.100 | 0.563 | +0.463 |
-| `exact_term` recall@5 | 0.000 | **1.000** | +1.000 |
-| `table_or_code` recall@5 | 0.000 | **1.000** | +1.000 |
-| `retrieval_miss` | 9 | 2 | −7 |
+### The first run found a bug in the evaluator, not the model
 
-The improvement holds on data never used for iteration, and the shape matches
-dev: the gains are concentrated in `exact_term` and `table_or_code`, and
-`multi_hop` remains 0.000 in both.
+| Metric (dev) | first run | after fix |
+|---|---|---|
+| answer_correctness | 0.684 | **0.842** |
+| faithfulness | 0.790 | **0.974** |
+| citation_precision | 0.500 | **1.000** |
+| `false_abstention` | 4 | **1** |
+
+The first run reported 4 false abstentions — the system refusing to answer when
+the gold evidence *was* in its context. The `support_fraction` distribution gave
+it away: every item scored exactly **0.0 or 1.0**, never anything between. That
+is not a threshold to tune, it is a binary parsing failure.
+
+Two bugs, both in the verifier, both punishing the model for behaving correctly:
+
+1. **Orphaned trailing citations.** The sentence splitter treated `[` as a
+   sentence start, so `...no more than 253 characters. [3]` split into a claim
+   plus a lone `[3]`. The claim was then uncited, and an uncited factual
+   sentence is scored unsupported by design — so a correctly cited answer
+   scored 0.0 and was abstained away.
+2. **Non-ASCII citation brackets.** The model wrote `【1】`, the full-width CJK
+   form. The citation regex matched only `[n]`, so an answer citing every
+   sentence was read as citing none.
+
+Both are now fixed and regression-tested. The comparison above is clean: the
+generations were served from the LLM cache, so the *only* variable between the
+two runs was citation parsing.
+
+This is the eval harness earning its keep in the least glamorous way — by
+catching a defect in itself. Without the `support_fraction` distribution and the
+`false_abstention` label, the obvious move would have been to lower the
+abstention threshold, which would have hidden the bug and degraded the product.
+
+### Held-out results (`full`, test split, 13 items)
+
+| Metric | Value |
+|---|---|
+| answer_correctness | 0.923 |
+| faithfulness | 1.000 |
+| citation_precision | 1.000 |
+| abstention_precision | 1.000 |
+| abstention_recall | 1.000 |
+| version_correctness | 1.000 |
+| recall@5 | 0.800 |
+| Failures | 1 `generation_failure` |
+
+**Do not read these at face value.** Three reasons:
+
+- **The judge is the model being judged.** Self-evaluation inflates
+  correctness. Until the judge is validated against human labels, 0.923 is a
+  number the system awarded itself.
+- **13 items.** One item is 7.7 points.
+- `faithfulness` and `citation_precision` at exactly 1.000 mean the verifier
+  found nothing wrong, which for the same model checking its own citations is
+  a weaker claim than it looks.
+
+`abstention_recall 1.000` is the most trustworthy figure here: every
+unanswerable question was refused, and that is decided by an exact string match
+on the abstention sentence, not by a model.
+
+### Retrieval improved too
+
+`full` reached recall@5 **0.857** on dev, against `hybrid`'s 0.786 — query
+rewriting and decomposition helped retrieval. Not isolated to one variable, so
+it is an observation, not an experiment.
 
 ---
 
-## What is still unmeasured
+## What is still open
 
-- **`hybrid_rerank_rewrite` and `full`** — query rewriting, decomposition,
-  claim verification and the judge all need an `ANTHROPIC_API_KEY`. No
-  generation metric in this repo has been measured: no correctness, no
-  faithfulness, no citation precision, no abstention, no judge agreement.
-- **`multi_hop` is 0.000 everywhere.** Two items, both needing evidence from two
-  pages, and recall@5 requires *all* gold evidence. Decomposition is the change
-  aimed at this, and it is exactly what could not be run.
-- **The full corpus.** Everything above is 639 pages from two versions.
+- **Judge validation is the biggest gap.** `evals/judge/label.py` is built and
+  wired; it needs ~50 human labels and a Cohen's kappa. Until then every
+  correctness number is self-assessed. Below a kappa of ~0.6 the honest move is
+  to fix the judge prompt, not publish what it produced.
+- **`multi_hop` is 0.000 in every single run.** Two items, each needing evidence
+  from two pages, and recall@5 requires *all* gold evidence. Decomposition is
+  enabled in `full` and still did not fix it.
+- **A separate judge model.** The cheapest real improvement available: point
+  `GT_CHEAP_MODEL` at a different model from `GT_GENERATION_MODEL` so the judge
+  is not grading itself. Blocked here only because Nemotron-3-Super was the one
+  model on the free tier that reliably answered in under 25 seconds — 55 of 58
+  others timed out or were not served.
+- **The full corpus**, and a golden set nearer the ~300 the spec targets.

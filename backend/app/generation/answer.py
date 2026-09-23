@@ -27,7 +27,7 @@ from app.core.llm import LLMClient, get_llm_client
 from app.core.logging import get_logger
 from app.core.pipeline import PipelineConfig
 from app.generation.prompts import ABSTAIN_MESSAGE, render_grounded_prompt
-from app.generation.verify import VerificationReport, verify_answer
+from app.generation.verify import VerificationReport, normalize_citations, verify_answer
 from app.retrieval.base import Candidate, RetrievalResult
 from app.retrieval.retriever import Retriever
 from app.retrieval.versioning import (
@@ -111,11 +111,15 @@ def is_abstention(text: str) -> bool:
 
 
 def extract_citations(answer: str, candidates: list[Candidate]) -> list[Citation]:
-    """Resolve `[n]` markers to the excerpts they point at, in order of use."""
+    """Resolve `[n]` markers to the excerpts they point at, in order of use.
+
+    Normalizes bracket style first: a model that writes the full-width CJK
+    form would otherwise have every citation dropped on the floor.
+    """
     citations: list[Citation] = []
     seen: set[int] = set()
 
-    for marker_text in _CITATION.findall(answer):
+    for marker_text in _CITATION.findall(normalize_citations(answer)):
         marker = int(marker_text)
         if marker in seen or not (1 <= marker <= len(candidates)):
             continue

@@ -36,24 +36,87 @@ FIXTURE_CORPUS = Path(__file__).parent / "fixtures" / "corpus"
 FIXTURE_VERSIONS = ["1.26", "1.28"]
 
 
+def _test_database_url(url: str) -> str:
+    """Derive a dedicated test database name from the configured URL."""
+    base, _, name = url.rpartition("/")
+    name = name.split("?")[0]
+    if name.endswith("_test"):
+        return url
+    return f"{base}/{name}_test"
+
+
 @pytest.fixture(scope="module")
 def db_session():
-    """A session on a live database, or skip the whole module."""
-    from app.core.db import session_scope
+    """A session on a dedicated *test* database, or skip the whole module.
+
+    These tests TRUNCATE the corpus tables, so they must never run against the
+    database a developer has just spent ten minutes ingesting into. They get
+    their own database (`<name>_test`), created here if it does not exist.
+    """
+    import os
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import reset_engines, session_scope
+    from app.core.settings import get_settings
+    from app.models import Base
+
+    original = os.environ.get("DATABASE_URL")
+    admin_url = get_settings().database_url
+    test_url = _test_database_url(admin_url)
+    db_name = test_url.rpartition("/")[2]
 
     try:
-        with session_scope() as session:
-            session.execute(text("SELECT 1"))
-            has_vector = session.execute(
-                text("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
-            ).scalar_one()
-            if not has_vector:
-                pytest.skip("pgvector is not installed in this database")
+        # CREATE DATABASE cannot run inside a transaction.
+        admin = create_engine(
+            admin_url, isolation_level="AUTOCOMMIT", connect_args={"connect_timeout": 3}
+        )
+        with admin.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": db_name}
+            ).scalar()
+            if not exists:
+                conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+        admin.dispose()
     except Exception as exc:  # noqa: BLE001 - any failure here means "no database"
         pytest.skip(f"no database available: {type(exc).__name__}")
 
-    with session_scope() as session:
-        yield session
+    os.environ["DATABASE_URL"] = test_url
+    get_settings.cache_clear()
+    reset_engines()
+
+    try:
+        engine = create_engine(test_url, isolation_level="AUTOCOMMIT")
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            has_vector = conn.execute(
+                text("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+            ).scalar_one()
+        if not has_vector:
+            pytest.skip("pgvector is not installed in this database")
+
+        # The hand-written migrations cover indexes Alembic cannot express;
+        # for tests the ORM schema plus the HNSW index is enough.
+        Base.metadata.create_all(engine)
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chunks_embedding_hnsw ON chunks "
+                    "USING hnsw (embedding vector_cosine_ops)"
+                )
+            )
+        engine.dispose()
+
+        with session_scope() as session:
+            yield session
+    finally:
+        if original is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = original
+        get_settings.cache_clear()
+        reset_engines()
 
 
 @pytest.fixture(scope="module")

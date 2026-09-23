@@ -90,7 +90,8 @@ async def query(
     except MissingAPIKeyError as exc:
         raise HTTPException(
             503,
-            "Generation needs ANTHROPIC_API_KEY. Retrieval-only evaluation does not.",
+            "Generation needs an LLM API key for the configured provider. "
+            "Retrieval-only evaluation does not.",
         ) from exc
 
     return QueryResponse(

@@ -32,12 +32,31 @@ def load_thresholds(path: Path = THRESHOLDS_PATH) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
-def latest_experiment() -> Path | None:
+def latest_experiment(dataset: str | None = None, config: str | None = None) -> Path | None:
+    """Newest experiment, optionally restricted to one dataset and config.
+
+    The floors in `thresholds.yaml` are derived from a specific dataset. A run
+    on a different golden set produces different numbers for reasons that have
+    nothing to do with a regression, so comparing one against the other is
+    meaningless -- and worse, it fails the build for the wrong reason.
+    """
     directory = REPO_ROOT / "experiments"
     if not directory.exists():
         return None
-    files = sorted(directory.glob("*.json"), reverse=True)
-    return files[0] if files else None
+
+    for path in sorted(directory.glob("*.json"), reverse=True):
+        if dataset is None and config is None:
+            return path
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if dataset and data.get("dataset_version") != dataset:
+            continue
+        if config and data.get("config", {}).get("name") != config:
+            continue
+        return path
+    return None
 
 
 class Check:
@@ -92,13 +111,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary", type=Path, default=None, help="Write a markdown summary here")
     args = parser.parse_args(argv)
 
-    path = args.experiment or latest_experiment()
+    thresholds = load_thresholds(args.thresholds)
+    want_dataset = str(thresholds.get("dataset", "")).removesuffix(".jsonl") or None
+    want_config = Path(str(thresholds.get("config", ""))).stem or None
+
+    path = args.experiment or latest_experiment(want_dataset, want_config)
     if path is None or not path.exists():
-        print("No experiment file to check. Run the eval first.", file=sys.stderr)
+        print(
+            f"No experiment for dataset={want_dataset!r} config={want_config!r}. "
+            "Run that eval first, or pass --experiment.",
+            file=sys.stderr,
+        )
         return 2
 
     record = json.loads(path.read_text(encoding="utf-8"))
-    thresholds = load_thresholds(args.thresholds)
+
+    # An explicitly passed file still has to match, or the floors mean nothing.
+    actual_dataset = record.get("dataset_version")
+    actual_config = record.get("config", {}).get("name")
+    if (want_dataset and actual_dataset != want_dataset) or (
+        want_config and actual_config != want_config
+    ):
+        print(
+            f"error: {path.name} is dataset={actual_dataset!r} config={actual_config!r}, "
+            f"but thresholds.yaml declares dataset={want_dataset!r} config={want_config!r}. "
+            "Floors from one dataset say nothing about another.",
+            file=sys.stderr,
+        )
+        return 2
     checks = build_checks(record, thresholds)
 
     lines = [

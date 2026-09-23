@@ -517,3 +517,60 @@ def test_fixture_set_has_both_answerable_and_unanswerable_items() -> None:
     items = load_dataset("fixture_golden.jsonl").items
     assert any(i.answerable for i in items)
     assert any(not i.answerable for i in items)
+
+
+# ---------------------------------------------------------------------------
+# Citation parsing
+#
+# Both of these were found by running a real evaluation, and both caused the
+# same visible failure: a correctly-cited answer scored `support_fraction 0.0`
+# and was replaced by an abstention. The verifier was punishing the model for
+# doing the right thing.
+# ---------------------------------------------------------------------------
+def test_a_trailing_citation_stays_with_its_sentence() -> None:
+    """`...253 characters. [3]` must not split into a sentence plus an orphan."""
+    from app.generation.verify import split_sentences
+
+    pairs = split_sentences("A name can contain no more than 253 characters. [3]")
+    assert len(pairs) == 1, "the citation must not become its own sentence"
+    sentence, citations = pairs[0]
+    assert citations == [3]
+    assert "253 characters" in sentence
+
+
+def test_full_width_citation_brackets_are_recognized() -> None:
+    """Models emit the CJK form often enough that ASCII-only matching lies."""
+    from app.generation.verify import normalize_citations, split_sentences
+
+    assert normalize_citations("levels are baseline\u30101\u3011.") == "levels are baseline[1]."
+
+    pairs = split_sentences("The levels are privileged, baseline, or restricted\u30101\u3011.")
+    assert pairs[0][1] == [1], "a full-width citation must count as a citation"
+
+
+def test_ordinary_multi_sentence_answers_still_split() -> None:
+    """The merge must not collapse genuinely separate sentences."""
+    from app.generation.verify import split_sentences
+
+    pairs = split_sentences("First claim [1]. Second claim [2].")
+    assert [c for _, c in pairs] == [[1], [2]]
+
+
+def test_extract_citations_handles_full_width_brackets() -> None:
+    """Otherwise the UI silently shows an answer with no sources."""
+    from app.generation.answer import extract_citations
+
+    candidates = [make_candidate(7, source_path="a.md", text="x")]
+    citations = extract_citations("The answer\u30101\u3011.", candidates)
+    assert [c.marker for c in citations] == [1]
+    assert citations[0].chunk_id == 7
+
+
+def test_an_uncited_factual_sentence_is_still_unsupported() -> None:
+    """The fix must not weaken the rule it was masking."""
+    from app.generation.verify import is_factual, split_sentences
+
+    pairs = split_sentences("The kubelet restarts the container automatically.")
+    sentence, citations = pairs[0]
+    assert citations == []
+    assert is_factual(sentence)

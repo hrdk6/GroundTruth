@@ -1,0 +1,677 @@
+{
+  "timestamp": "2026-09-23T08:01:32.217394+00:00",
+  "mode": "retrieval",
+  "split": "test",
+  "dataset_version": "golden_v1",
+  "dataset_size": 13,
+  "git_sha": "0f0812723ee0ada21f583db68685ad402852a3a9",
+  "git_dirty": true,
+  "config": {
+    "name": "baseline",
+    "config_hash": "97b334a0f394",
+    "chunker_name": "fixed-512-64",
+    "values": {
+      "name": "baseline",
+      "description": "Fixed 512-token chunks with 64-token overlap, embedded with bge-small, dense cosine retrieval only, top-5 into a grounded-answer prompt. No lexical search, no fusion, no reranking, no query rewriting, no verification.\n",
+      "chunking": {
+        "chunker": "fixed",
+        "max_tokens": 512,
+        "overlap_tokens": 64,
+        "min_tokens": 32,
+        "prepend_heading_path": true
+      },
+      "embedding": {
+        "model": "BAAI/bge-small-en-v1.5",
+        "dimension": 384,
+        "batch_size": 64,
+        "normalize": true,
+        "query_prefix": "Represent this sentence for searching relevant passages: ",
+        "document_prefix": ""
+      },
+      "retrieval": {
+        "dense": {
+          "enabled": true,
+          "k": 20
+        },
+        "lexical": {
+          "enabled": false,
+          "k": 20,
+          "text_search_config": "english"
+        },
+        "fusion": {
+          "enabled": false,
+          "rrf_k": 60
+        },
+        "rerank": {
+          "enabled": false,
+          "model": "BAAI/bge-reranker-base",
+          "batch_size": 32
+        },
+        "query_rewrite": {
+          "enabled": false,
+          "model": null,
+          "keep_original_for_lexical": true
+        },
+        "decomposition": {
+          "enabled": false,
+          "model": null,
+          "max_subqueries": 3
+        },
+        "k_final": 5,
+        "version_filter": true
+      },
+      "generation": {
+        "model": null,
+        "prompt": "grounded_v1",
+        "max_tokens": 1024,
+        "temperature": 0.0
+      },
+      "verification": {
+        "enabled": false,
+        "model": null,
+        "support_threshold": 0.8,
+        "max_regenerations": 1
+      },
+      "versioning": {
+        "default_version": "latest",
+        "detect_from_question": true,
+        "conflict_detection": false
+      }
+    }
+  },
+  "environment": {
+    "python": "3.12.12",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "llm_provider": "openai",
+    "llm_base_url": "https://integrate.api.nvidia.com/v1",
+    "generation_model": "nvidia/nemotron-3-super-120b-a12b",
+    "cheap_model": "nvidia/nemotron-3-super-120b-a12b"
+  },
+  "metrics": {
+    "count": 10,
+    "recall@1": 0.1,
+    "recall@5": 0.1,
+    "recall@10": 0.1,
+    "mrr": 0.1,
+    "ndcg@10": 0.1,
+    "partial_recall@10": 0.1,
+    "abstention_precision": null,
+    "abstention_recall": null,
+    "false_answer_rate": null,
+    "version_correctness": 1.0
+  },
+  "metrics_by_category": {
+    "exact_term": {
+      "count": 3,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "factual": {
+      "count": 4,
+      "recall@1": 0.25,
+      "recall@5": 0.25,
+      "recall@10": 0.25,
+      "mrr": 0.25,
+      "ndcg@10": 0.25,
+      "partial_recall@10": 0.25,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "multi_hop": {
+      "count": 1,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "table_or_code": {
+      "count": 1,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "unanswerable": {
+      "count": 0,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0
+    },
+    "version_sensitive": {
+      "count": 1,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null,
+      "version_correctness": 1.0
+    }
+  },
+  "attribution": {
+    "retrieval_miss": 9
+  },
+  "latency": {
+    "p50_ms": 19.91,
+    "p95_ms": 24.16,
+    "total_seconds": 11.8
+  },
+  "cost": {
+    "calls": 0,
+    "cached_calls": 0,
+    "cache_hit_rate": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": 0.0,
+    "list_cost_usd": 0.0,
+    "by_model": {}
+  },
+  "items": [
+    {
+      "item_id": "factual-d1a8c7fea2",
+      "category": "factual",
+      "question": "What is the default terminationGracePeriodSeconds for a Pod?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        10585,
+        10118,
+        10001,
+        10000,
+        10761
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 11553.74,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 35.39,
+        "dense": 11517.7
+      }
+    },
+    {
+      "item_id": "factual-ee66e3b5f9",
+      "category": "factual",
+      "question": "What protocol do Services use if none is specified?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9762,
+        9772,
+        9768,
+        9773,
+        9660
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 20.84,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.03,
+        "dense": 18.04
+      }
+    },
+    {
+      "item_id": "factual-a60cd929a5",
+      "category": "factual",
+      "question": "How many old ReplicaSets does a Deployment keep by default?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9987,
+        9957,
+        10027,
+        9974,
+        9964
+      ],
+      "best_rank": 1,
+      "gold_found": 1,
+      "gold_total": 1,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "latency_ms": 19.91,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.04,
+        "dense": 18.49
+      }
+    },
+    {
+      "item_id": "factual-fbe91ee4af",
+      "category": "factual",
+      "question": "Where does kubectl look for its configuration file by default?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9282,
+        11165,
+        10153,
+        10368,
+        9283
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 20.12,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.97,
+        "dense": 18.39
+      }
+    },
+    {
+      "item_id": "exact_term-9d856cfa78",
+      "category": "exact_term",
+      "question": "Which field limits the number of old ReplicaSets a Deployment retains?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9987,
+        9964,
+        9957,
+        10027,
+        10018
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 18.96,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.94,
+        "dense": 16.17
+      }
+    },
+    {
+      "item_id": "exact_term-3dbf0cd13a",
+      "category": "exact_term",
+      "question": "Which flag configures the NodePort range on the API server?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9765,
+        9766,
+        9748,
+        9688,
+        9764
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 19.34,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.1,
+        "dense": 16.95
+      }
+    },
+    {
+      "item_id": "exact_term-0e389b1121",
+      "category": "exact_term",
+      "question": "What must the endPort field be relative to port in a NetworkPolicy?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9748,
+        9744,
+        9765,
+        9741,
+        9777
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 20.84,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.9,
+        "dense": 18.46
+      }
+    },
+    {
+      "item_id": "table_or_code-19d564c36b",
+      "category": "table_or_code",
+      "question": "What does the cron schedule `0 0 13 * 5` mean?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9941,
+        9946,
+        9942,
+        9947,
+        9940
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 18.56,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.97,
+        "dense": 15.5
+      }
+    },
+    {
+      "item_id": "multi_hop-4575b596fc",
+      "category": "multi_hop",
+      "question": "How long does a Pod get to shut down by default, and which taint effect would evict it from a node?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        9225,
+        10086,
+        9554,
+        9224,
+        10117
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 2,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 21.59,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.88,
+        "dense": 19.53
+      }
+    },
+    {
+      "item_id": "unanswerable-3fab5a994b",
+      "category": "unanswerable",
+      "question": "Is Kubernetes faster than Nomad for batch scheduling?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        9391,
+        10007,
+        9541,
+        10240,
+        9388
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "latency_ms": 19.69,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.02,
+        "dense": 18.58
+      }
+    },
+    {
+      "item_id": "unanswerable-11c1e4741d",
+      "category": "unanswerable",
+      "question": "Which company operates the largest Kubernetes cluster in production?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        9388,
+        9391,
+        9220,
+        9393,
+        9390
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "latency_ms": 18.39,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.06,
+        "dense": 17.24
+      }
+    },
+    {
+      "item_id": "unanswerable-25d24a77a1",
+      "category": "unanswerable",
+      "question": "What is the internal memory layout of the etcd watch cache implementation?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        10426,
+        9517,
+        9539,
+        9271,
+        10422
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "latency_ms": 18.79,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.96,
+        "dense": 17.75
+      }
+    },
+    {
+      "item_id": "version_sensitive-cfd20fde41",
+      "category": "version_sensitive",
+      "question": "What is the stability level of user namespace support for Pods?",
+      "answerable": true,
+      "expected_version": "1.30",
+      "retrieved_chunk_ids": [
+        10133,
+        10137,
+        10131,
+        10135,
+        10134
+      ],
+      "best_rank": null,
+      "gold_found": 0,
+      "gold_total": 1,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "abstained": false,
+      "version_used": "1.30",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "retrieval_miss",
+      "attribution_detail": "gold evidence was in no candidate set",
+      "latency_ms": 24.16,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 0.9,
+        "dense": 21.52
+      }
+    }
+  ]
+}
