@@ -91,9 +91,19 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:
-        """SQLAlchemy URL. An explicit DATABASE_URL always wins."""
+        """SQLAlchemy URL. An explicit DATABASE_URL always wins.
+
+        Managed Postgres hands out `postgres://` or `postgresql://`. SQLAlchemy
+        reads the first as an unknown dialect and the second as psycopg2, which
+        is not installed, so either one pasted as-is fails at the first query.
+        Both are rewritten to the one driver this project uses.
+        """
         if self.database_url_override:
-            return self.database_url_override
+            url = self.database_url_override
+            for scheme in ("postgres://", "postgresql://"):
+                if url.startswith(scheme):
+                    return "postgresql+psycopg://" + url.removeprefix(scheme)
+            return url
         return (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

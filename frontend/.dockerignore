@@ -1,0 +1,7 @@
+# Built inside the image. A host's node_modules holds that platform's native
+# binaries (Next's SWC, Tailwind's lightningcss); copied into a Linux image it
+# replaces the ones `npm ci` just installed.
+node_modules
+.next
+*.tsbuildinfo
+.env*

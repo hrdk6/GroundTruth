@@ -423,3 +423,29 @@ database it was recorded in is the one being served. Bought: the page proves
 its mechanism in the first viewport without a backend, and nothing on it is
 invented.
 
+### D21 — The images mirror the repo, carry their model, and migrate on start
+
+**Context.** The backend image was built from `backend/` alone. Inside it,
+`REPO_ROOT` resolved to `/`, and `configs/` and `experiments/` existed only
+because the dev Compose file mounted them there, so any host that runs the
+image as built (Render, a VM) served every `/query` as a 404. The frontend
+image ran `next dev`. Neither had ever been built: the dev machine cannot run
+Docker (L19).
+
+**Choice.** The backend is built from the repo root and lays out
+`/srv/backend`, `/srv/configs`, `/srv/experiments` as the checkout does, so
+`REPO_ROOT` needs no deployment-specific override. It installs from `uv.lock`
+without the dev extra, bakes the served config's embedding model into the
+image, runs as an unprivileged user, and runs `alembic upgrade head` before
+uvicorn. The frontend is a multi-stage image whose final stage is Next's
+standalone server; the `dev` stage keeps `docker compose up` working over a
+mounted tree. `docker-compose.prod.yml` is the single-server stack, and a CI
+job builds it and queries it through the frontend's proxy on every push.
+
+**Trade-off.** The backend image is larger by the model (~130 MB) and must be
+rebuilt to change it. Migrating on start is right for one instance and wrong
+for several starting at once. The API address is compiled into the frontend,
+so moving the backend means rebuilding the frontend. Bought: an image that
+works where it lands, with no volume, download, or release step it silently
+depends on.
+

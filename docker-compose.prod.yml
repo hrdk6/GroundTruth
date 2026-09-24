@@ -1,0 +1,85 @@
+# GroundTruth on one server (docs/DEPLOY.md):
+#
+#     docker compose -f docker-compose.prod.yml up -d --build
+#
+# What differs from docker-compose.yml, the dev stack: images run as built, with
+# no source mounted and no --reload; the frontend is the production server; the
+# API and the database publish no host port -- the browser reaches the API only
+# through the frontend's /api proxy; and every service restarts on failure.
+#
+# Values come from a .env beside this file. POSTGRES_PASSWORD is required.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-groundtruth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-groundtruth}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-groundtruth} -d ${POSTGRES_DB:-groundtruth}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-groundtruth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-groundtruth}
+      GT_LLM_PROVIDER: ${GT_LLM_PROVIDER:-anthropic}
+      GT_LLM_BASE_URL: ${GT_LLM_BASE_URL:-}
+      GT_LLM_API_KEY: ${GT_LLM_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GT_GENERATION_MODEL: ${GT_GENERATION_MODEL:-claude-sonnet-5}
+      GT_CHEAP_MODEL: ${GT_CHEAP_MODEL:-claude-haiku-4-5}
+      # Zero is right for a free tier and wrong for a paid one: every cost
+      # figure the API reports is computed from these.
+      GT_LLM_COST_PER_MTOK_IN: ${GT_LLM_COST_PER_MTOK_IN:-0.0}
+      GT_LLM_COST_PER_MTOK_OUT: ${GT_LLM_COST_PER_MTOK_OUT:-0.0}
+      GT_ADMIN_TOKEN: ${GT_ADMIN_TOKEN:-}
+      GT_LOG_LEVEL: ${GT_LOG_LEVEL:-INFO}
+      GT_LOG_FORMAT: json
+    volumes:
+      # Release tarballs and extracted pages, for ingesting on the server.
+      - corpus:/srv/data
+      # The LLM cache: a repeated question is answered without a model call.
+      - llm_cache:/srv/.cache
+    healthcheck:
+      # The image has no curl. /health answers 200 even when degraded, so this
+      # is liveness; the start period covers migrations on first boot.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
+  corpus:
+  llm_cache:

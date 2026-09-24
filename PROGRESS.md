@@ -116,11 +116,22 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
 - [x] CI: lint, types, tests, fixture ingest, retrieval eval, gate — all run
       locally end to end against a fresh, migrated database; the gate passes
 - [x] README table generated from `experiments/`; `--check` wired into CI
-- [x] ARCHITECTURE (20 decisions), LIMITATIONS (26 entries), DEMO_SCRIPT
+- [x] ARCHITECTURE (21 decisions), LIMITATIONS (27 entries), DEMO_SCRIPT,
+      DEPLOY
 - [x] **A fresh clone installs, lints, type-checks, passes all 256 tests, and
       builds the frontend** — which it could not before the audit, because
       `.gitignore` had kept `backend/app/models/` out of every commit
-- [ ] CI has never run on GitHub — no remote is configured
+- [x] CI runs on GitHub (github.com/hrdk6/GroundTruth), green since the first
+      push
+- [x] Deployable images (D21). The backend image had never been built and
+      could not have served a query: it lacked `configs/` and `experiments/`.
+      The frontend image ran `next dev`. The standalone frontend server was
+      run locally against the live API: pages, assets, proxy, and a `full`
+      query answered and verified through it
+- [x] Managed-Postgres URLs (`postgres://`) accepted as given; migrations no
+      longer fail on a URL-encoded password
+- [ ] The production stack built and driven by CI's `docker` job — added,
+      not yet run
 
 ---
 

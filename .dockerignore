@@ -1,0 +1,18 @@
+# Build context for backend/Dockerfile, which is built from the repo root.
+#
+# An allow-list: only what the image copies is sent to the builder. Everything
+# else -- .env and its keys, data/ (~750MB of release tarballs), node_modules,
+# .git -- never leaves the machine.
+*
+!backend
+!configs
+!experiments
+
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.cache
+backend/tests

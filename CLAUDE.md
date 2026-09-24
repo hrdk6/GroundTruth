@@ -105,6 +105,18 @@ automatically — there is no `activate` step.
   `models/` once hid `backend/app/models/` (the ORM package) from every commit.
   Anchor root-only patterns with a leading `/`, and check new ignores with
   `git check-ignore -v <path>`.
+- **The backend image is built from the repo root** (`docker build -f
+  backend/Dockerfile .`), not from `backend/`: it copies `configs/` and
+  `experiments/` and mirrors the checkout under `/srv`, which is how
+  `REPO_ROOT` resolves. The root `.dockerignore` is an allow-list; a new
+  directory the image needs must be added there. Deployment is
+  `docker-compose.prod.yml` (docs/DEPLOY.md); CI's `docker` job builds and
+  drives it, because nothing here can.
+- **The frontend's API address is compiled in.** `next build` writes the
+  rewrite target into `routes-manifest.json`, so `NEXT_PUBLIC_API_URL` is a
+  build argument; setting it on a running container does nothing.
+- **The backend's floor is ~510 MB** with bge-small resident, and ~1.6 GB once
+  a rerank config is chosen (L27). A 512 MB instance is not enough.
 - **After a killed session, `make db-local` can time out** while Postgres runs
   crash recovery (it retries an fsync of pgserver's own log file for 30s).
   Wait, then run it again: it picks up the running server and rewrites the port

@@ -26,7 +26,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# The option store is a ConfigParser, which reads `%` as interpolation: a
+# password with a URL-encoded character (`p%40ss`) would fail every migration.
+config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 

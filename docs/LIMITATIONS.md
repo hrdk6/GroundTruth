@@ -261,12 +261,14 @@ distinguishable from noise, and the tables say so. Percentile bootstrap
 intervals are, if anything, slightly too narrow at this n. The fix is more
 items, not better statistics.
 
-### L19 — The Docker path is fixed by inspection, not by running it
+### L19 — The Docker path is verified by CI, never on the dev machine
 
-Docker cannot start on the dev machine (L6), and no GitHub remote exists, so CI
-has never run. The Compose fixes in the audit — the frontend's proxy target,
-the LLM cache volume path, the provider environment — were made by reading the
-files, not by running them. `make db-local` is the path every number came from.
+Docker cannot start on the dev machine (L6). The images and
+`docker-compose.prod.yml` are built and driven through the frontend's proxy by
+CI's `docker` job, on Linux x86_64; the dev Compose file (source mounted,
+`--reload`) is not exercised anywhere, and nothing has been run on ARM, where
+the lockfile's aarch64 wheels and the multi-arch base images are relied on by
+inspection. `make db-local` is the path every number came from.
 
 ### L20 — Conflict detection is lexical similarity on an exact heading
 
@@ -328,4 +330,15 @@ The first screen shows a real answer captured from the API on 23 Sep 2026
 what the live system would say. It is labelled as recorded and dated, but
 nothing checks it against the current pipeline; recapture it (the question is
 in the file) whenever the shipping pipeline changes.
+
+### L27 — The backend needs more than 512 MB, and a visitor can triple it
+
+With bge-small resident the backend holds ~510 MB before it serves a request
+(docs/DEPLOY.md), so a 512 MB instance is not enough for it. The Ask page's
+pipeline dropdown lists every config, including the two that rerank:
+choosing one loads bge-reranker-base on first use and takes the process to
+~1.6 GB, and puts CPU reranking in the query path (retrieval p50 7.8 s on dev,
+9.6 s on test; EXPERIMENTS.md). A public deployment has no way to withhold
+a config short of deleting its file from the image; an allow-list setting
+(`GT_SERVED_CONFIGS`) would be the fix.
 

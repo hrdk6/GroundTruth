@@ -79,7 +79,9 @@ make dev                    # API on :8000
 Then `cd frontend && npm install && npm run dev` for the UI on `localhost:3000`.
 
 On Windows, `./make.ps1 <target>` mirrors every target. With Docker available,
-`make up` starts Postgres and the API in containers instead.
+`make up` starts Postgres and the API in containers instead. To run it on a
+server, see [docs/DEPLOY.md](docs/DEPLOY.md): one Compose file, and the backend
+needs more than 512 MB.
 
 Ingestion is CPU-bound on embedding. The evaluated subset takes ~12 minutes for
 both chunkers:

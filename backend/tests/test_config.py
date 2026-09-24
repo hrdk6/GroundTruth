@@ -176,6 +176,20 @@ def test_explicit_database_url_wins() -> None:
     assert s.database_url == "postgresql+psycopg://x:y@z:1/db"
 
 
+@pytest.mark.parametrize(
+    "given",
+    [
+        "postgres://x:y@z:1/db?sslmode=require",
+        "postgresql://x:y@z:1/db?sslmode=require",
+    ],
+)
+def test_managed_database_urls_are_pointed_at_psycopg(given: str) -> None:
+    # The form Render, Neon, Supabase, and Heroku print. Without the rewrite
+    # SQLAlchemy looks for psycopg2 (or a dialect named `postgres`) and fails.
+    s = Settings(_env_file=None, DATABASE_URL=given)  # type: ignore[call-arg]
+    assert s.database_url == "postgresql+psycopg://x:y@z:1/db?sslmode=require"
+
+
 def test_api_key_is_not_printed_in_repr() -> None:
     s = Settings(_env_file=None, anthropic_api_key="sk-ant-secret-value")  # type: ignore[call-arg]
     assert "sk-ant-secret-value" not in repr(s)

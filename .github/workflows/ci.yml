@@ -130,3 +130,41 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npx next build
+
+  docker:
+    name: Docker — production stack builds and serves
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The workflow's POSTGRES_* variables fill the Compose file's; the stack
+      # is exactly what docs/DEPLOY.md tells a server to run.
+      - name: Build and start
+        run: docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 300
+
+      - name: The API answers through the frontend's proxy
+        run: |
+          curl -fsS localhost:3000/ -o /dev/null
+          curl -fsS localhost:3000/api/health \
+            | python3 -c "import json,sys; h=json.load(sys.stdin); assert h['status'] == 'ok', h; print(h)"
+          curl -fsS localhost:3000/api/versions \
+            | python3 -c "import json,sys; v=json.load(sys.stdin); assert 'full' in v['configs'], v; print(v)"
+          curl -fsS localhost:3000/api/experiments \
+            | python3 -c "import json,sys; e=json.load(sys.stdin); assert e, 'no experiment records in the image'; print(len(e), 'records')"
+
+      # The deployable memory floor, measured where it runs: Linux, one worker,
+      # the embedding model resident. With no LLM key the query still embeds
+      # the question before generation stops, which is what loads the model.
+      - name: Report memory with the model loaded
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:3000/api/query \
+            -H 'Content-Type: application/json' \
+            -d '{"question": "How do I create a Pod?", "config_name": "baseline"}')
+          echo "query status: $code"
+          printf '### Container memory, embedding model loaded\n\n| Container | Usage / limit |\n|---|---|\n' >> "$GITHUB_STEP_SUMMARY"
+          docker stats --no-stream --format '| {{.Name}} | {{.MemUsage}} |' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Logs
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --no-color

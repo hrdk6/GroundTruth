@@ -1,4 +1,4 @@
-# GroundTruth local stack: `make up`.
+# GroundTruth local stack: `make up`. For a server, see docker-compose.prod.yml.
 #
 # The backend mounts the source read-write and runs uvicorn --reload, so edits
 # on the host take effect without a rebuild. The frontend is behind the
@@ -28,9 +28,15 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # The repo root: the image copies configs/ and experiments/ from beside
+      # backend/, and lays them out under /srv as they are laid out here.
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: groundtruth-backend
+    # The image runs as an unprivileged user; the bind mounts below belong to
+    # the host's user, and ingestion and evals write into data/ and
+    # experiments/. Development only -- docker-compose.prod.yml mounts no source.
+    user: root
     depends_on:
       db:
         condition: service_healthy
@@ -51,28 +57,29 @@ services:
       GT_CHEAP_MODEL: ${GT_CHEAP_MODEL:-claude-haiku-4-5}
       GT_LOG_LEVEL: ${GT_LOG_LEVEL:-INFO}
       GT_LOG_FORMAT: ${GT_LOG_FORMAT:-console}
-      # Absolute, because inside the image the repo root resolves to `/`, and
-      # a relative cache dir would land outside the named volume below.
-      GT_LLM_CACHE_DIR: /cache/llm
-      # Keep the HuggingFace model cache on a named volume: re-downloading
-      # bge-small on every container start is slow and pointless.
-      HF_HOME: /models
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
-      - ./configs:/configs:ro
-      - ./data:/data
-      - ./experiments:/experiments
-      - hf_models:/models
-      - llm_cache:/cache
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./backend:/srv/backend
+      - ./configs:/srv/configs:ro
+      - ./data:/srv/data
+      - ./experiments:/srv/experiments
+      # The image's model cache (bge-small, baked in) seeds this volume, which
+      # then keeps any model a config adds -- the reranker -- across restarts.
+      - hf_models:/opt/hf
+      # The LLM cache's default location, `.cache/llm` under the repo root.
+      - llm_cache:/srv/.cache
+    # `make up` migrates from the host, so this skips the image's migrate step.
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
     profiles: ["frontend"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # The dev server over the mounted source; the image's final stage is
+      # the production server (docker-compose.prod.yml).
+      target: dev
     container_name: groundtruth-frontend
     depends_on:
       - backend
