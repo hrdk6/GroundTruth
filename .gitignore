@@ -48,10 +48,7 @@ desktop.ini
 .vscode/
 
 # Personal AI-assistant tooling: installed per machine, not part of the project.
-# (The Impeccable design skill, with a 14MB binary, was once swept into a
-# commit.) `.claude/launch.json` stays: it starts this repo's two dev servers.
-.claude/*
-!.claude/launch.json
+.claude/
 .github/skills/
 .github/agents/
 .github/hooks/
