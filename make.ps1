@@ -31,6 +31,10 @@ $BackendDir = Join-Path $RepoRoot 'backend'
 
 function Invoke-Step {
     param([string]$Command, [string[]]$Arguments, [string]$WorkingDirectory = $RepoRoot)
+    # The exit code is the verdict. Under 'Stop', Windows PowerShell 5.1 turns
+    # any stderr line from a redirected native command -- docker's build
+    # progress, a Postgres NOTICE -- into a terminating error.
+    $ErrorActionPreference = 'Continue'
     Push-Location $WorkingDirectory
     try {
         & $Command @Arguments
@@ -62,7 +66,7 @@ switch ($Target) {
         Write-Host 'GroundTruth targets (see ./Makefile for the reference definitions):'
         @(
             @('install', 'Create the venv and install backend deps'),
-            @('up', 'Start Postgres + backend, then run migrations'),
+            @('up', 'Start Postgres, the API and the UI in Docker, then migrate that database'),
             @('db-local', 'Start Postgres without Docker (no virtualization needed)'),
             @('db-local-stop', 'Stop the Docker-free Postgres'),
             @('down', 'Stop the stack (data volumes survive)'),
@@ -88,9 +92,11 @@ switch ($Target) {
     }
     'install' { Invoke-Step -Command 'uv' -Arguments @('sync', '--all-extras') -WorkingDirectory $BackendDir }
     'up' {
-        Invoke-Step -Command 'docker' -Arguments @('compose', 'up', '-d', '--build', 'db', 'backend')
+        Invoke-Step -Command 'docker' -Arguments @('compose', 'up', '-d', '--build')
         Wait-Health
-        Invoke-Backend @('python', '-m', 'alembic', 'upgrade', 'head')
+        # Inside the container: the host's .env may point at `db-local`.
+        Invoke-Step -Command 'docker' -Arguments @('compose', 'exec', '-T', 'backend', 'python', '-m', 'alembic', 'upgrade', 'head')
+        Write-Host 'UI on http://localhost:3000 (the first page load compiles for a few seconds)'
     }
     'db-local' { Invoke-Backend @('python', '../scripts/local_db.py', 'start') }
     'db-local-stop' { Invoke-Backend @('python', '../scripts/local_db.py', 'stop') }

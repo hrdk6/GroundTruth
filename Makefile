@@ -23,11 +23,13 @@ help: ## Show available targets
 install: ## Create the venv and install backend deps (incl. dev extras)
 	cd backend && uv sync --all-extras
 
-up: ## Start Postgres + backend, then run migrations
-	$(COMPOSE) up -d --build db backend
+up: ## Start Postgres, the API and the UI in Docker, then migrate that database
+	$(COMPOSE) up -d --build
 	@echo "Waiting for the API to become healthy..."
 	@$(MAKE) --no-print-directory health
-	@$(MAKE) --no-print-directory migrate
+	@# Inside the container: the host's .env may point at `make db-local`.
+	$(COMPOSE) exec -T backend python -m alembic upgrade head
+	@echo "UI on http://localhost:3000 (the first page load compiles for a few seconds)"
 
 db-local: ## Start Postgres without Docker (pgserver wheel; no virtualization)
 	$(BACKEND) python ../scripts/local_db.py start

@@ -1,9 +1,12 @@
 # GroundTruth local stack: `make up`. For a server, see docker-compose.prod.yml.
 #
-# The backend mounts the source read-write and runs uvicorn --reload, so edits
-# on the host take effect without a rebuild. The frontend is behind the
-# `frontend` profile (`docker compose --profile frontend up`) so `make up`
-# stays fast for backend-only work.
+# Postgres, the API, and the UI on localhost:3000. The backend and frontend
+# mount their source and reload on edits, so a change on the host needs no
+# rebuild. `docker compose up -d db backend` starts the API alone.
+#
+# Migrations are not run by the backend here (its command skips the image's
+# migrate step); `make up` runs them inside the container, against this
+# database -- not the host's .env, which may point at `make db-local`.
 
 services:
   db:
@@ -69,11 +72,10 @@ services:
       - hf_models:/opt/hf
       # The LLM cache's default location, `.cache/llm` under the repo root.
       - llm_cache:/srv/.cache
-    # `make up` migrates from the host, so this skips the image's migrate step.
+    # `make up` migrates after the API is up, so this skips the image's migrate step.
     command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
-    profiles: ["frontend"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -87,6 +89,9 @@ services:
       # Read by the Next.js dev server's proxy, which runs *inside* this
       # container: `localhost` here is the frontend itself, not the API.
       NEXT_PUBLIC_API_URL: http://backend:8000
+      # File events do not cross a Windows or macOS bind mount into the Linux
+      # VM, so without polling an edit on the host never reloads the page.
+      WATCHPACK_POLLING: "true"
     ports:
       - "3000:3000"
     volumes:
