@@ -151,7 +151,7 @@ export default function AskPage() {
             }}
             className="mt-8 max-w-[860px]"
           >
-            <div className="flex flex-col sm:flex-row gap-2.5 rounded-2xl bg-harbor-2/80 p-2 ring-1 ring-harbor-line">
+            <div className="flex flex-col sm:flex-row gap-2.5 rounded-2xl bg-harbor-2/80 p-2 ring-1 ring-harbor-line shadow-[0_8px_24px_-14px_rgb(23_41_59/0.25)]">
               <input
                 ref={inputRef}
                 value={question}
@@ -163,7 +163,7 @@ export default function AskPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="h-14 rounded-xl bg-signal px-9 text-[17px] font-bold text-harbor hover:bg-signal-hi disabled:opacity-60 disabled:cursor-wait transition-colors"
+                className="h-14 rounded-xl bg-signal px-9 text-[17px] font-bold text-sheet hover:bg-signal-hi disabled:opacity-60 disabled:cursor-wait transition-colors"
               >
                 {loading ? "Asking…" : "Ask"}
               </button>
@@ -211,7 +211,7 @@ export default function AskPage() {
                   <button
                     onClick={() => void submit(suggestion.question)}
                     disabled={loading}
-                    className="text-left rounded-full border border-harbor-line bg-harbor/40 px-4 py-2 text-[14.5px] leading-snug text-harbor-ink hover:bg-harbor-2 hover:border-harbor-dim disabled:opacity-50 transition-colors"
+                    className="text-left rounded-full border border-harbor-line bg-harbor-2/70 px-4 py-2 text-[14.5px] leading-snug text-harbor-ink hover:bg-sheet hover:border-act/50 disabled:opacity-50 transition-colors"
                   >
                     {suggestion.question}
                     {suggestion.note && (

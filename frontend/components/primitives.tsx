@@ -90,7 +90,7 @@ export function Wordmark() {
         />
         <path d="M13 5v13" stroke="var(--color-harbor-ink)" strokeWidth="1.2" strokeDasharray="1.6 2" />
         <path d="M13 17.5c-2 2.4-2.6 3.6-2.6 4.8a2.6 2.6 0 0 0 5.2 0c0-1.2-.6-2.4-2.6-4.8z" fill="var(--color-harbor-ink)" />
-        <path d="M2 26.5h22" stroke="var(--color-pass-wash)" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M2 26.5h22" stroke="var(--color-pass)" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
       <span className="hidden min-[440px]:inline serif font-semibold tracking-[-0.01em] text-[21px] text-harbor-ink">
         GroundTruth

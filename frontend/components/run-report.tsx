@@ -222,7 +222,7 @@ export function RunReport({
                 aria-pressed={voted === helpful}
                 className={`rounded-full border px-4 py-1.5 text-[15px] transition-colors ${
                   voted === helpful
-                    ? "border-harbor bg-harbor text-harbor-ink"
+                    ? "border-act bg-act text-sheet"
                     : "border-rule-strong bg-sheet text-ink hover:border-ink"
                 }`}
               >
@@ -420,7 +420,7 @@ function Excerpt({
         aria-expanded={open}
         className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-paper/60 transition-colors"
       >
-        <span className="text-[12px] font-semibold min-w-6 h-6 px-1.5 grid place-items-center rounded-full bg-harbor text-harbor-ink shrink-0">
+        <span className="text-[12px] font-semibold min-w-6 h-6 px-1.5 grid place-items-center rounded-full bg-act text-sheet shrink-0">
           {citation.marker}
         </span>
         <span className="min-w-0 flex-1">

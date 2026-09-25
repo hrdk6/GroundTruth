@@ -27,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <div className="min-h-screen flex flex-col">
-          <header className="on-harbor sticky top-0 z-30 bg-harbor/95 backdrop-blur-sm text-harbor-ink">
+          <header className="on-harbor sticky top-0 z-30 bg-harbor/95 backdrop-blur-sm text-harbor-ink border-b border-harbor-line/70">
             <div className="mx-auto max-w-[1320px] px-4 sm:px-8 h-16 flex items-stretch gap-3 sm:gap-8">
               <Link href="/" aria-label="GroundTruth, home" className="flex items-center shrink-0">
                 <Wordmark />

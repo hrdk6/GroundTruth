@@ -5,9 +5,10 @@
 
    A ground truth is what a sailor finds by sounding: a weighted line dropped
    until it touches the bottom. Kubernetes is the helmsman. So the page is a
-   quiet sea chart: a harbour-navy masthead with depth contours, chart-white
-   paper below, and claims read like soundings -- each one marked by whether
-   it touched the source.
+   quiet sea chart, coloured the way real charts are: pale shallow-water blue
+   with depth contours, chart-white paper below, one calm sea-blue for action,
+   and claims read like soundings -- each marked by whether it touched the
+   source. Light throughout: it is a page for reading closely, for a while.
 
    Verdicts are still drawn by fill first (solid, half, hollow) and hue
    second, so they survive grayscale and colour blindness. The focused claim
@@ -16,22 +17,23 @@
 --------------------------------------------------------------------------- */
 
 @theme {
-  --color-paper: #f4f5f9;
+  --color-paper: #f5f8fa;
   --color-sheet: #ffffff;
-  --color-well: #eceef4;
-  --color-rule: #dfe2ea;
-  --color-rule-strong: #bcc2d0;
+  --color-well: #edf2f6;
+  --color-rule: #dde5ec;
+  --color-rule-strong: #b9c6d2;
 
-  --color-ink: #151a33;
-  --color-ink-2: #464d66;
-  --color-ink-3: #666e87;
+  /* Deep sea-slate: dark enough to read, never pure black. */
+  --color-ink: #17293b;
+  --color-ink-2: #45586b;
+  --color-ink-3: #5c6d80;
 
-  /* The harbour: masthead, hero, and the wordmark's water. */
-  --color-harbor: #172056;
-  --color-harbor-2: #222c6e;
-  --color-harbor-line: #34408a;
-  --color-harbor-ink: #eef0ff;
-  --color-harbor-dim: #aab2e2;
+  /* The shallows: masthead and hero, in a chart's pale water blue. */
+  --color-harbor: #e3eef5;
+  --color-harbor-2: #f5f9fc;
+  --color-harbor-line: #bdd3e1;
+  --color-harbor-ink: #17293b;
+  --color-harbor-dim: #4a6177;
 
   --color-pass: #1c7a4e;
   --color-pass-wash: #dcf2e5;
@@ -41,12 +43,12 @@
   --color-fail: #b33a2e;
   --color-fail-wash: #fbe2de;
 
-  /* Asking, and keyboard focus. On the harbour the button is periwinkle. */
-  --color-act: #3f51e0;
-  --color-act-deep: #2f3fc4;
-  --color-act-wash: #e4e7ff;
-  --color-signal: #9fb0ff;
-  --color-signal-hi: #bac6ff;
+  /* Asking, links, the leader line, and focus: one calm sea-blue. */
+  --color-act: #2d6a9f;
+  --color-act-deep: #245a88;
+  --color-act-wash: #e2edf6;
+  --color-signal: #2d6a9f;
+  --color-signal-hi: #245a88;
 
   --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Newsreader", ui-serif, Georgia, serif;
@@ -167,7 +169,6 @@
     -webkit-box-decoration-break: clone;
   }
 
-  /* On the harbour, focus rings are periwinkle: ultramarine on navy vanishes. */
   .on-harbor :focus-visible {
     outline-color: var(--color-signal);
   }

@@ -36,10 +36,10 @@ export function StageLine({ question }: { question: string }) {
         <span className="sounding-line absolute left-[23.5px] top-[7px] h-[118px] w-px border-l border-dashed border-ink-3" />
         <span className="sounding-lead absolute left-[18px] top-[6px] block" style={{ ["--depth" as string]: "112px" }}>
           <svg width="12" height="16" viewBox="0 0 12 16">
-            <path d="M6 0c-3 3.6-4.6 6-4.6 8.6a4.6 4.6 0 0 0 9.2 0C10.6 6 9 3.6 6 0z" fill="var(--color-harbor)" />
+            <path d="M6 0c-3 3.6-4.6 6-4.6 8.6a4.6 4.6 0 0 0 9.2 0C10.6 6 9 3.6 6 0z" fill="var(--color-ink)" />
           </svg>
         </span>
-        <span className="absolute left-0 bottom-0 h-[5px] w-12 rounded-full bg-pass-wash" />
+        <span className="absolute left-0 bottom-0 h-[5px] w-12 rounded-full bg-pass/60" />
       </div>
 
       <div className="min-w-0">
