@@ -143,7 +143,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
     <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-4 sm:pt-6">
       <BackLink />
 
-      <h1 className="mt-4 text-[28px] sm:text-[34px] leading-[1.2] font-extrabold tracking-[-0.02em] text-ink max-w-[34ch] wrap-break-word">
+      <h1 className="mt-4 serif font-medium text-[32px] sm:text-[42px] leading-[1.12] tracking-[-0.02em] text-ink max-w-[30ch] wrap-break-word">
         {trace.question}
       </h1>
 
@@ -169,7 +169,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
       <div className="mt-10 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-10 xl:gap-12">
         {/* ---------------- Waterfall ---------------- */}
         <section aria-label="Stages">
-          <h2 className="text-[20px] font-extrabold text-ink">Stages on one clock</h2>
+          <h2 className="serif text-[26px] leading-tight font-medium text-ink">Stages on one clock</h2>
           <p className="mt-1 mb-4 text-[15px] text-ink-2 max-w-[62ch]">
             Each bar starts when its stage started, so gaps and overlaps are real. Select a stage for its
             inputs and outputs.
@@ -228,7 +228,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                               width: `${width}%`,
                               // A 3ms span on a 40s axis is still a span.
                               minWidth: 3,
-                              backgroundColor: failed ? "var(--color-fail)" : "var(--color-ink-2)",
+                              backgroundColor: failed ? "var(--color-fail)" : "var(--color-act)",
                             }}
                           />
                         </span>
@@ -274,7 +274,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
 
           {trace.answer && (
             <>
-              <h2 className="mt-10 text-[20px] font-extrabold text-ink">Final answer</h2>
+              <h2 className="mt-10 serif text-[26px] leading-tight font-medium text-ink">Final answer</h2>
               <div className="mt-3 sheet px-5 py-4 text-[16px] leading-[1.65] text-ink whitespace-pre-wrap wrap-break-word">
                 <AnswerText
                   text={trace.answer}
@@ -294,7 +294,7 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
 
         {/* ---------------- Rank trail ---------------- */}
         <aside aria-label="Rank trail">
-          <h2 className="text-[20px] font-extrabold text-ink">Rank trail</h2>
+          <h2 className="serif text-[26px] leading-tight font-medium text-ink">Rank trail</h2>
           <p className="mt-1 mb-4 text-[15px] text-ink-2 max-w-[62ch]">
             Where each excerpt placed at every stage, left to right. A number that climbs is an excerpt the
             pipeline demoted: a ranking miss you can point at.

@@ -16,23 +16,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        {/* Atkinson Hyperlegible was drawn for low-vision readers: letterforms
-            that cannot be mistaken for each other (I l 1, O 0). This page's job
-            is being read closely, so legibility is the brief, not a garnish. */}
+        {/* Newsreader is a text serif drawn for reading on screens, with the
+            italics a sea chart letters its water in; Schibsted Grotesk is the
+            interface. The mono is kept only for code and paths, where telling
+            I, l and 1 apart is the whole job. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;500;700&family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;700&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
       </head>
       <body>
         <div className="min-h-screen flex flex-col">
-          <header className="sticky top-0 z-30 bg-paper/90 backdrop-blur-sm border-b border-rule">
-            <div className="mx-auto max-w-[1320px] px-4 sm:px-8 h-14 flex items-stretch gap-3 sm:gap-8">
+          <header className="on-harbor sticky top-0 z-30 bg-harbor/95 backdrop-blur-sm text-harbor-ink">
+            <div className="mx-auto max-w-[1320px] px-4 sm:px-8 h-16 flex items-stretch gap-3 sm:gap-8">
               <Link href="/" aria-label="GroundTruth, home" className="flex items-center shrink-0">
                 <Wordmark />
               </Link>
               <Nav />
-              <p className="ml-auto hidden md:flex items-center text-[13px] text-ink-3">
+              <p className="ml-auto hidden md:flex items-center serif italic text-[16px] text-harbor-dim">
                 Kubernetes docs, answered with receipts
               </p>
             </div>
@@ -40,8 +41,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           <main className="flex-1">{children}</main>
 
-          <footer className="border-t border-rule mt-16">
-            <div className="mx-auto max-w-[1320px] px-4 sm:px-8 py-6 text-[13px] text-ink-3 flex flex-wrap gap-x-6 gap-y-2">
+          <footer className="border-t border-rule mt-20">
+            <div className="mx-auto max-w-[1320px] px-4 sm:px-8 py-8 text-[14px] text-ink-3 flex flex-wrap gap-x-8 gap-y-2">
               <span>Answers quote the Kubernetes documentation, licensed CC BY 4.0.</span>
               <a href="https://github.com/hrdk6/GroundTruth" className="underline hover:text-ink">
                 Source, experiments and the audit on GitHub

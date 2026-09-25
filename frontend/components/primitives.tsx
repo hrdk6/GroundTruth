@@ -56,27 +56,43 @@ export function VerificationMark({
   );
 }
 
-/** The verdict in the report's machine voice, beside the claim it judges. */
+/** The highlighter wash a focused claim is marked with, per verdict. */
+export const VERDICT_WASH: Record<Verdict, string> = {
+  supported: "var(--color-pass-wash)",
+  partially: "var(--color-partial-wash)",
+  unsupported: "var(--color-fail-wash)",
+};
+
+/** The verdict in words, beside the claim it judges. */
 export function VerdictWord({ verdict }: { verdict: Verdict | null }) {
   if (!verdict) return <span className="machine text-ink-3">Not checked</span>;
   return (
-    <span className="machine font-bold" style={{ color: VERDICT_COLOR[verdict] }}>
+    <span className="machine font-semibold" style={{ color: VERDICT_COLOR[verdict] }}>
       {VERDICT_LABEL[verdict]}
     </span>
   );
 }
 
-/** The product's own mark: the three verdicts, as a legend. */
+/**
+ * The product's own mark: a sounding line. A lead dropped from the surface
+ * until it touches the bottom -- the ground truth the name is about.
+ */
 export function Wordmark() {
   return (
     <span className="flex items-center gap-2.5">
-      <svg width="30" height="12" viewBox="0 0 30 12" aria-hidden="true">
-        <rect x="0.75" y="0.75" width="8.5" height="10.5" rx="1.5" fill="var(--color-pass)" stroke="var(--color-pass)" strokeWidth="1.5" />
-        <rect x="10.75" y="0.75" width="8.5" height="10.5" rx="1.5" fill="none" stroke="var(--color-partial)" strokeWidth="1.5" />
-        <rect x="12.5" y="2.5" width="2.75" height="7" fill="var(--color-partial-fill)" />
-        <rect x="20.75" y="0.75" width="8.5" height="10.5" rx="1.5" fill="none" stroke="var(--color-fail)" strokeWidth="1.5" />
+      <svg width="26" height="28" viewBox="0 0 26 28" aria-hidden="true">
+        <path
+          d="M1 5c2.2 0 2.2-2 4.4-2s2.2 2 4.4 2 2.2-2 4.4-2 2.2 2 4.4 2 2.2-2 4.4-2"
+          fill="none"
+          stroke="var(--color-signal)"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <path d="M13 5v13" stroke="var(--color-harbor-ink)" strokeWidth="1.2" strokeDasharray="1.6 2" />
+        <path d="M13 17.5c-2 2.4-2.6 3.6-2.6 4.8a2.6 2.6 0 0 0 5.2 0c0-1.2-.6-2.4-2.6-4.8z" fill="var(--color-harbor-ink)" />
+        <path d="M2 26.5h22" stroke="var(--color-pass-wash)" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
-      <span className="hidden min-[440px]:inline font-extrabold tracking-[-0.02em] text-[17px] text-ink">
+      <span className="hidden min-[440px]:inline serif font-semibold tracking-[-0.01em] text-[21px] text-harbor-ink">
         GroundTruth
       </span>
     </span>
@@ -161,7 +177,7 @@ export function Field({
 export function EmptyState({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="sheet px-6 py-12 text-center">
-      <p className="text-ink font-bold text-lg">{title}</p>
+      <p className="serif text-ink font-medium text-[24px]">{title}</p>
       {children && <div className="mt-2 text-ink-2 max-w-prose mx-auto">{children}</div>}
     </div>
   );
@@ -194,9 +210,12 @@ export function Spinner({ label }: { label: string }) {
   );
 }
 
+// A no-break space: "2.72" and "s" on separate lines read as two values.
+const NBSP = String.fromCharCode(160);
+
 export function formatMs(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`;
-  return `${Math.round(ms)} ms`;
+  if (ms >= 1000) return `${(ms / 1000).toFixed(2)}${NBSP}s`;
+  return `${Math.round(ms)}${NBSP}ms`;
 }
 
 export function formatCost(usd: number | null | undefined): string {
@@ -233,8 +252,9 @@ export function formatDate(iso: string): string {
 /**
  * A heading path as a reader should see it. Hugo headings carry explicit
  * anchors -- `Termination of Pods {#pod-termination}` -- which the parser keeps
- * in the stored path; they are markup, not part of the title.
+ * in the stored path; they are markup, not part of the title. So are the
+ * backticks around a field name in a heading.
  */
 export function cleanHeading(path: string | null | undefined): string {
-  return (path ?? "").replace(/\s*\{#[^}]*\}/g, "");
+  return (path ?? "").replace(/\s*\{#[^}]*\}/g, "").replace(/`/g, "");
 }

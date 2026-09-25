@@ -65,7 +65,7 @@ export function AnswerText({
     blocks.push(
       <pre
         key={`c${start}`}
-        className="my-3 overflow-x-auto rounded-md border border-rule bg-well px-4 py-3 mono text-[13.5px] leading-[1.65] text-ink"
+        className="my-4 overflow-x-auto rounded-lg bg-harbor px-5 py-4 mono text-[13.5px] leading-[1.7] text-harbor-ink"
       >
         <code>{match[1].replace(/\s+$/, "")}</code>
       </pre>,
@@ -95,7 +95,7 @@ function inline(
               key={partKey}
               // Smaller on a phone, so a 30-character identifier still fits
               // the measure instead of breaking mid-word.
-              className="mono text-[0.78em] sm:text-[0.86em] px-[0.3em] py-[0.08em] rounded-[4px] bg-well text-ink"
+              className="mono text-[0.74em] sm:text-[0.8em] px-[0.35em] py-[0.1em] rounded-[5px] bg-act-wash/70 text-harbor"
             >
               {part.slice(1, -1)}
             </code>

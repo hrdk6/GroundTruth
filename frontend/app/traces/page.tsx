@@ -52,7 +52,7 @@ export default function TracesPage() {
 
   return (
     <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-10 sm:pt-12">
-      <h1 className="text-[34px] leading-tight font-extrabold tracking-[-0.02em] text-ink">Traces</h1>
+      <h1 className="serif font-medium text-[40px] sm:text-[48px] leading-[1.05] tracking-[-0.025em] text-ink">Traces</h1>
       <p className="mt-2 text-[17px] text-ink-2 max-w-[64ch]">
         Every question asked, failed ones included, with a span for each stage it passed through. Open one
         to see where the time went, and where each excerpt was ranked, kept, or dropped.

@@ -126,7 +126,7 @@ export default function ExperimentsPage() {
 
   return (
     <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-10 sm:pt-12">
-      <h1 className="text-[34px] leading-tight font-extrabold tracking-[-0.02em] text-ink">Experiments</h1>
+      <h1 className="serif font-medium text-[40px] sm:text-[48px] leading-[1.05] tracking-[-0.025em] text-ink">Experiments</h1>
       <p className="mt-2 text-[17px] text-ink-2 max-w-[66ch]">
         Every run is a file in <code className="mono text-[0.9em] px-1 rounded bg-well">experiments/</code>,
         recorded with its config, commit, and question set. Select two to compare them question by question:
@@ -278,7 +278,7 @@ function Comparison({
 
   return (
     <div className="mt-12">
-      <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[24px] font-extrabold text-ink tracking-[-0.01em]">
+      <h2 className="flex flex-wrap items-center gap-x-3 gap-y-1 serif text-[28px] font-medium text-ink tracking-[-0.01em]">
         <span className="mono text-[20px]">{base.config_name}</span>
         <svg width="22" height="14" viewBox="0 0 22 14" aria-label="compared with">
           <path d="M1 7h18M14 2l5 5-5 5" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />

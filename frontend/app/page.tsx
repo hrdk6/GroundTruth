@@ -52,6 +52,8 @@ export default function AskPage() {
   // The recorded run's trace only exists on the database it was recorded in.
   const [recordedTrace, setRecordedTrace] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Answers land below the hero; asking brings the reader down to them.
+  const resultsRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     api
@@ -88,7 +90,7 @@ export default function AskPage() {
       setResult(null);
       setVoted(null);
       setAsked(trimmed);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
 
       try {
         const response = await api.query({
@@ -125,15 +127,21 @@ export default function AskPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
-      {/* The same two columns as the report below: the question over the
-          claims, the suggestions over the evidence. */}
-      <section className="pt-8 sm:pt-10 pb-7 border-b border-rule grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)] gap-x-12 gap-y-7">
-        <div>
-          <p className="text-[17px] text-ink-2 max-w-[62ch]">
-            Ask about the Kubernetes documentation
-            {versions.length ? ` (releases ${versions.join(" and ")})` : ""}. Every claim in the answer
-            cites an excerpt, and a second pass checks that the excerpt really supports it.
+    <div>
+      {/* The harbour: the question is asked on the surface, over the contours
+          of what it will be sounded against. */}
+      {/* `clip`, not `hidden`: a hidden overflow is still a scroll container, and
+          focusing a chip would scroll the hero's contents out from under it. */}
+      <section className="on-harbor relative overflow-clip bg-harbor text-harbor-ink">
+        <Contours />
+        <div className="relative mx-auto max-w-[1320px] px-4 sm:px-8 pt-10 sm:pt-16 pb-12 sm:pb-16">
+          <h1 className="serif font-medium text-[40px] sm:text-[60px] leading-[1.02] tracking-[-0.025em] max-w-[16ch]">
+            Ask the Kubernetes docs.
+          </h1>
+          <p className="mt-4 text-[17px] sm:text-[19px] leading-[1.55] text-harbor-dim max-w-[56ch]">
+            Every sentence in the answer comes back with the excerpt it quotes, and a second pass
+            checks that the excerpt really says it
+            {versions.length ? `. Releases ${versions.join(" and ")} are indexed.` : "."}
           </p>
 
           <form
@@ -141,38 +149,38 @@ export default function AskPage() {
               event.preventDefault();
               void submit(question);
             }}
-            className="mt-4"
+            className="mt-8 max-w-[860px]"
           >
-            <div className="flex flex-col sm:flex-row gap-2.5">
+            <div className="flex flex-col sm:flex-row gap-2.5 rounded-2xl bg-harbor-2/80 p-2 ring-1 ring-harbor-line">
               <input
                 ref={inputRef}
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 placeholder="How do I roll back a Deployment?"
                 aria-label="Your question"
-                className="w-full sm:w-auto sm:flex-1 min-w-0 h-14 rounded-md border border-rule-strong bg-sheet px-4 text-[18px] text-ink shadow-[0_1px_2px_rgb(21_23_28/0.05)] focus:border-act focus:outline-none focus:ring-4 focus:ring-act-wash transition-shadow"
+                className="w-full sm:w-auto sm:flex-1 min-w-0 h-14 rounded-xl bg-sheet px-5 serif text-[19px] text-ink focus:outline-none focus:ring-4 focus:ring-signal/60 transition-shadow"
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="h-14 rounded-md bg-act px-8 text-[17px] font-bold text-sheet hover:bg-act-deep disabled:opacity-60 disabled:cursor-wait transition-colors"
+                className="h-14 rounded-xl bg-signal px-9 text-[17px] font-bold text-harbor hover:bg-signal-hi disabled:opacity-60 disabled:cursor-wait transition-colors"
               >
                 {loading ? "Asking…" : "Ask"}
               </button>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-[14px] text-ink-2">
+            <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-[14px] text-harbor-dim">
               <label className="flex items-center gap-2">
                 Release
                 <select
                   value={version}
                   onChange={(event) => setVersion(event.target.value)}
-                  className="rounded-md border border-rule-strong bg-sheet px-2 py-1 mono text-[13px] text-ink"
+                  className="rounded-lg border border-harbor-line bg-harbor-2 px-2.5 py-1.5 text-[14px] text-harbor-ink"
                 >
-                  <option value="auto">detect from the question</option>
+                  <option value="auto">Detect from the question</option>
                   {versions.map((v) => (
                     <option key={v} value={v}>
-                      {v}
+                      Kubernetes {v}
                     </option>
                   ))}
                 </select>
@@ -182,7 +190,7 @@ export default function AskPage() {
                 <select
                   value={configName}
                   onChange={(event) => setConfigName(event.target.value)}
-                  className="rounded-md border border-rule-strong bg-sheet px-2 py-1 mono text-[13px] text-ink"
+                  className="rounded-lg border border-harbor-line bg-harbor-2 px-2.5 py-1.5 mono text-[13px] text-harbor-ink"
                 >
                   {!configName && <option value="">server default</option>}
                   {configs.map((c) => (
@@ -194,49 +202,89 @@ export default function AskPage() {
               </label>
             </div>
           </form>
-          {showingRecorded && (
-            <div className="mt-6">
-              <RecordedNotice recorded={recordedMeta} />
-            </div>
-          )}
-        </div>
 
-        <div>
-          <h2 className="text-[15px] font-bold text-ink mb-2">Or try one that was asked before</h2>
-          <ul className="sheet divide-y divide-rule overflow-hidden">
-            {SUGGESTIONS.map((suggestion) => (
-              <li key={suggestion.question}>
-                <button
-                  onClick={() => void submit(suggestion.question)}
-                  disabled={loading}
-                  className="w-full text-left px-4 py-2 text-[14.5px] leading-snug text-ink hover:bg-paper disabled:opacity-50 transition-colors"
-                >
-                  {suggestion.question}
-                  {suggestion.note && <span className="ml-1.5 text-[13px] text-ink-3">· {suggestion.note}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-9">
+            <h2 className="text-[15px] font-semibold text-harbor-ink">Or try a question that was asked before</h2>
+            <ul className="mt-3 flex flex-wrap gap-2.5 max-w-[1000px]">
+              {SUGGESTIONS.map((suggestion) => (
+                <li key={suggestion.question}>
+                  <button
+                    onClick={() => void submit(suggestion.question)}
+                    disabled={loading}
+                    className="text-left rounded-full border border-harbor-line bg-harbor/40 px-4 py-2 text-[14.5px] leading-snug text-harbor-ink hover:bg-harbor-2 hover:border-harbor-dim disabled:opacity-50 transition-colors"
+                  >
+                    {suggestion.question}
+                    {suggestion.note && (
+                      <span className="ml-2 serif italic text-[15px] text-signal">{suggestion.note}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
-      <section className="pt-8" aria-live="polite">
-        {loading && <StageLine question={asked} />}
-
-        {error && !loading && (
-          <div className="max-w-[70ch]">
-            <ErrorNote message={error} />
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
+        {showingRecorded && (
+          <div className="mt-8">
+            <RecordedNotice recorded={recordedMeta} />
           </div>
         )}
 
-        {result && !loading && (
-          <RunReport question={asked} result={result} onFeedback={(h) => void vote(h)} voted={voted} />
-        )}
+        <section ref={resultsRef} className="pt-8 scroll-mt-16" aria-live="polite">
+          {loading && <StageLine question={asked} />}
 
-        {showingRecorded && (
-          <RunReport question={RECORDED.question} result={RECORDED.response} recorded={recordedMeta} />
-        )}
-      </section>
+          {error && !loading && (
+            <div className="max-w-[70ch]">
+              <ErrorNote message={error} />
+            </div>
+          )}
+
+          {result && !loading && (
+            <RunReport question={asked} result={result} onFeedback={(h) => void vote(h)} voted={voted} />
+          )}
+
+          {showingRecorded && (
+            <RunReport question={RECORDED.question} result={RECORDED.response} recorded={recordedMeta} />
+          )}
+        </section>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Depth contours behind the hero, the way a chart draws the seabed. Drawn from
+ * a fixed formula, so the server and the browser render the same lines.
+ */
+function Contours() {
+  const rings = Array.from({ length: 9 }, (_, i) => {
+    const base = 70 + i * 46;
+    const points = Array.from({ length: 73 }, (_, step) => {
+      const t = (step / 72) * Math.PI * 2;
+      const r =
+        base * (1 + 0.09 * Math.sin(3 * t + i * 0.55) + 0.05 * Math.sin(5 * t - i * 0.8) + 0.03 * Math.cos(2 * t + i));
+      return `${(Math.cos(t) * r * 1.35).toFixed(1)},${(Math.sin(t) * r).toFixed(1)}`;
+    });
+    return `M${points.join("L")}Z`;
+  });
+  return (
+    <svg
+      aria-hidden="true"
+      className="pointer-events-none absolute -right-40 top-1/2 -translate-y-1/2 h-[140%] w-auto opacity-70"
+      viewBox="-640 -480 1280 960"
+    >
+      {rings.map((d, i) => (
+        <path
+          key={i}
+          d={d}
+          fill="none"
+          stroke="var(--color-harbor-line)"
+          strokeWidth={i % 3 === 0 ? 1.4 : 0.9}
+          strokeDasharray={i % 3 === 2 ? "3 6" : undefined}
+        />
+      ))}
+    </svg>
   );
 }

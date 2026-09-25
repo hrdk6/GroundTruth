@@ -449,3 +449,21 @@ so moving the backend means rebuilding the frontend. Bought: an image that
 works where it lands, with no volume, download, or release step it silently
 depends on.
 
+### D22 — The interface speaks in words, on a sea chart
+
+**Context.** The test-report design (D20's first screen, set in grey sheets
+with uppercase mono labels such as `CASE 01 · SUPPORTED`) was accurate and
+read as machine output. The reviewer it is built for called it robotic.
+
+**Choice.** Keep every structure that makes an answer checkable (per-claim
+verdicts, the evidence column, the leader line, version differences, the
+honest wait) and change the voice. The name supplies the identity: a ground
+truth is what a sounding line finds. A harbour-navy masthead with depth
+contours, a reading serif for questions, claims and excerpts, sentence-case
+labels, and a highlighter wash on the focused claim. DESIGN.md has the system.
+
+**Trade-off.** Atkinson Hyperlegible, chosen for legibility, now sets only
+code and paths; Newsreader and Schibsted Grotesk are well-drawn text faces but
+not designed for low vision. The hero pushes the recorded run below the first
+viewport on most screens, so asking now scrolls to the results.
+

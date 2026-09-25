@@ -21,13 +21,13 @@ export function Nav() {
             href={item.href}
             aria-current={current ? "page" : undefined}
             className={`relative flex items-center px-2 sm:px-3 transition-colors ${
-              current ? "text-ink font-bold" : "text-ink-2 hover:text-ink"
+              current ? "text-harbor-ink font-semibold" : "text-harbor-dim hover:text-harbor-ink"
             }`}
           >
             {item.label}
-            {/* The current tab is underlined by a rule that sits on the
-                masthead's own bottom rule, like a tab on a report divider. */}
-            {current && <span className="absolute inset-x-2 sm:inset-x-3 -bottom-px h-[3px] rounded-t bg-ink" />}
+            {/* The current page is marked by a periwinkle rule on the
+                masthead's lower edge. */}
+            {current && <span className="absolute inset-x-2 sm:inset-x-3 bottom-0 h-[3px] rounded-t bg-signal" />}
           </Link>
         );
       })}

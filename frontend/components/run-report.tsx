@@ -16,6 +16,7 @@ import { AnswerText, reflow } from "@/components/answer-text";
 import { DiffText, diffWords } from "@/components/word-diff";
 import {
   Field,
+  VERDICT_WASH,
   VerdictWord,
   VerificationMark,
   cleanHeading,
@@ -48,15 +49,15 @@ function clip(text: string, limit: number): string {
 /** What the recorded run is, said before anyone reads it as live. */
 export function RecordedNotice({ recorded }: { recorded: RecordedMeta }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-md border border-rule bg-sheet px-4 py-3">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl bg-act-wash/60 px-5 py-3.5">
       <p className="text-[15px] leading-snug text-ink-2 flex-1 min-w-[15rem]">
-        <span className="font-bold text-ink">Below is a recorded run:</span> a real answer from the live
-        system on {formatDate(recorded.firstRunAt)}, cold, in {formatMs(recorded.firstRunLatencyMs)}.
+        <span className="font-semibold text-ink">Below is a recorded run:</span> a real answer from the
+        live system on {formatDate(recorded.firstRunAt)}, cold, in {formatMs(recorded.firstRunLatencyMs)}.
         Check it now, before asking your own.
       </p>
       <button
         onClick={recorded.onAskLive}
-        className="rounded-md border border-rule-strong bg-sheet px-3.5 py-2 text-[15px] font-bold text-ink hover:border-ink transition-colors"
+        className="rounded-lg bg-sheet px-4 py-2 text-[15px] font-semibold text-act ring-1 ring-act/30 hover:ring-act transition-shadow"
       >
         Ask it live
       </button>
@@ -130,7 +131,7 @@ export function RunReport({
   return (
     <article>
       <header>
-        <h1 className="text-[28px] sm:text-[34px] leading-[1.2] font-extrabold tracking-[-0.02em] text-ink max-w-[30ch] wrap-break-word">
+        <h1 className="serif font-medium text-[32px] sm:text-[42px] leading-[1.12] tracking-[-0.02em] text-ink max-w-[26ch] wrap-break-word">
           {question}
         </h1>
         <Summary counts={counts} result={result} latencyMs={latency} abstained={result.abstained} />
@@ -164,8 +165,8 @@ export function RunReport({
             aria-label="Evidence"
             className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-24 lg:self-start lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1"
           >
-            <h2 className="text-[20px] font-extrabold text-ink">Evidence</h2>
-            <p className="mt-1 mb-4 text-[14px] text-ink-2">
+            <h2 className="serif font-medium text-[26px] leading-tight text-ink">Evidence</h2>
+            <p className="mt-1.5 mb-4 text-[14.5px] text-ink-2">
               {result.citations.length === 0
                 ? "No excerpt was cited, so there is nothing here to check."
                 : "The excerpts the claims cite, quoted from the indexed docs. Select a claim to open its source."}
@@ -219,9 +220,9 @@ export function RunReport({
                 key={String(helpful)}
                 onClick={() => onFeedback(helpful)}
                 aria-pressed={voted === helpful}
-                className={`rounded-md border px-3 py-1.5 text-[15px] transition-colors ${
+                className={`rounded-full border px-4 py-1.5 text-[15px] transition-colors ${
                   voted === helpful
-                    ? "border-ink bg-ink text-sheet"
+                    ? "border-harbor bg-harbor text-harbor-ink"
                     : "border-rule-strong bg-sheet text-ink hover:border-ink"
                 }`}
               >
@@ -233,7 +234,7 @@ export function RunReport({
         {traceId && (
           <Link
             href={`/traces/${traceId}`}
-            className="ml-auto text-[15px] font-bold text-ink underline hover:no-underline"
+            className="ml-auto text-[15px] font-semibold text-act underline decoration-act/40 hover:decoration-act"
           >
             See every stage of this run
           </Link>
@@ -256,36 +257,61 @@ function Summary({
   latencyMs: number;
   abstained: boolean;
 }) {
-  const items: Array<{ verdict: Verdict; count: number; label: string }> = [
-    { verdict: "supported", count: counts.supported, label: "supported" },
-    { verdict: "partially", count: counts.partially, label: "partly supported" },
-    { verdict: "unsupported", count: counts.unsupported, label: "unsupported" },
+  const items: Array<{ verdict: Verdict; count: number; label: string; color: string }> = [
+    { verdict: "supported", count: counts.supported, label: "supported", color: "var(--color-pass)" },
+    { verdict: "partially", count: counts.partially, label: "partly supported", color: "var(--color-partial-fill)" },
+    { verdict: "unsupported", count: counts.unsupported, label: "unsupported", color: "var(--color-fail)" },
   ];
+  const where = (
+    <span className="text-ink-2">
+      {result.version_used
+        ? `${abstained ? "Searched" : "Answered from"} Kubernetes ${result.version_used}`
+        : "No version"}{" "}
+      in{" "}
+      {formatMs(latencyMs)}.
+    </span>
+  );
+
+  if (abstained) {
+    return (
+      <div className="mt-5 flex flex-wrap items-baseline gap-x-6 gap-y-2 text-[16px]">
+        <span className="font-semibold text-ink">No answer given: the evidence did not support one.</span>
+        {where}
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 border-y border-rule py-3 text-[15px]">
-      {abstained ? (
-        <span className="font-bold text-ink">No answer given: the evidence did not support one</span>
-      ) : (
-        <>
-          <span className="text-ink">
-            <span className="font-extrabold tnum">{counts.checked}</span>{" "}
-            {counts.checked === 1 ? "claim" : "claims"} checked
-          </span>
-          {items.map((item) => (
-            <span
-              key={item.verdict}
-              className={`inline-flex items-center gap-2 ${item.count ? "text-ink" : "text-ink-3"}`}
-            >
-              <VerificationMark verdict={item.verdict} />
-              <span className="tnum font-bold">{item.count}</span> {item.label}
-            </span>
-          ))}
-        </>
+    <div className="mt-6 max-w-[760px]">
+      <p className="text-[17px] text-ink">
+        <span className="font-semibold tnum">
+          {counts.supported} of {counts.checked}
+        </span>{" "}
+        {counts.checked === 1 ? "claim is" : "claims are"} fully supported by {counts.checked === 1 ? "its" : "their"}{" "}
+        sources. {where}
+      </p>
+      {/* One segment per checked claim, grouped by verdict: how well the
+          answer is grounded, at a glance. */}
+      {counts.checked > 0 && (
+        <div className="mt-3 flex h-2 gap-1" aria-hidden="true">
+          {items.flatMap((item) =>
+            Array.from({ length: item.count }, (_, i) => (
+              <span key={`${item.verdict}-${i}`} className="flex-1 rounded-full" style={{ background: item.color }} />
+            )),
+          )}
+        </div>
       )}
-      <span className="text-ink-2 sm:ml-auto">
-        {result.version_used ? `Kubernetes ${result.version_used}` : "No version"} ·{" "}
-        <span className="mono tnum">{formatMs(latencyMs)}</span>
-      </span>
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[14px]">
+        {items.map((item) => (
+          <span
+            key={item.verdict}
+            className={`inline-flex items-center gap-2 ${item.count ? "text-ink" : "text-ink-3"}`}
+          >
+            <VerificationMark verdict={item.verdict} />
+            <span className="tnum font-semibold">{item.count}</span> {item.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -315,15 +341,15 @@ function ClaimRow({
           onFocus();
         }
       }}
-      className={`grid grid-cols-[18px_minmax(0,1fr)] gap-x-4 px-4 sm:px-6 py-5 cursor-pointer transition-colors outline-offset-[-2px] ${
-        focused ? "bg-paper" : "hover:bg-paper/60"
+      className={`grid grid-cols-[18px_minmax(0,1fr)] gap-x-4 px-5 sm:px-7 py-6 cursor-pointer transition-colors outline-offset-[-2px] ${
+        focused ? "bg-paper/70" : "hover:bg-paper/50"
       }`}
     >
-      <span className="pt-[7px]">
+      <span className="pt-[9px]">
         <VerificationMark verdict={segment.verdict} size={14} />
       </span>
       <div className="min-w-0">
-        <div className="text-[18px] leading-[1.65] text-ink wrap-break-word">
+        <div className="serif text-[19px] sm:text-[20px] leading-[1.65] text-ink wrap-break-word">
           <AnswerText
             text={segment.display || segment.text}
             citation={(marker, key) => (
@@ -334,28 +360,36 @@ function ClaimRow({
                   onFocus(marker);
                 }}
                 aria-label={`Show excerpt ${marker}`}
-                className="mono text-[12px] align-[0.35em] ml-0.5 px-1.5 py-px rounded-[4px] border border-rule-strong bg-sheet text-ink hover:border-ink transition-colors"
+                className="font-sans text-[12px] font-semibold align-[0.35em] ml-0.5 min-w-[1.4rem] px-1.5 py-px rounded-full bg-act-wash text-act hover:bg-act hover:text-sheet transition-colors"
               >
                 {marker}
               </button>
             )}
           />
         </div>
-        <div className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          {/* Zero-padded and in the machine voice, so a case id never reads
-              as a citation marker. */}
-          <span className="machine text-ink-3 tnum">Case {String(caseId).padStart(2, "0")}</span>
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[13px] text-ink-3">
           <VerdictWord verdict={segment.verdict} />
           {segment.citations.length > 0 && (
-            <span className="text-[13px] text-ink-3">
-              cites {[...new Set(segment.citations)].map((m) => `[${m}]`).join(" ")}
+            <span>
+              by {new Set(segment.citations).size > 1 ? "excerpts" : "excerpt"}{" "}
+              {[...new Set(segment.citations)].join(", ")}
             </span>
           )}
+          <span className="sr-only">(claim {caseId})</span>
         </div>
         {focused && segment.reason && (
-          <p className="mt-2 text-[14px] leading-relaxed text-ink-2 max-w-[62ch]">
-            <span className="font-bold text-ink">Verifier: </span>
-            {segment.reason}
+          <p className="mt-3 text-[15px] leading-relaxed text-ink-2 max-w-[62ch]">
+            <span className="font-semibold text-ink">Why: </span>
+            <span
+              className={segment.verdict ? "marked" : undefined}
+              style={
+                segment.verdict
+                  ? ({ ["--mark" as string]: VERDICT_WASH[segment.verdict] } as React.CSSProperties)
+                  : undefined
+              }
+            >
+              {segment.reason}
+            </span>
           </p>
         )}
       </div>
@@ -386,11 +420,11 @@ function Excerpt({
         aria-expanded={open}
         className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-paper/60 transition-colors"
       >
-        <span className="mono text-[12px] min-w-6 h-6 px-1.5 grid place-items-center rounded-[4px] bg-ink text-sheet shrink-0">
+        <span className="text-[12px] font-semibold min-w-6 h-6 px-1.5 grid place-items-center rounded-full bg-harbor text-harbor-ink shrink-0">
           {citation.marker}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-bold text-ink leading-snug">
+          <span className="block text-[15.5px] font-semibold text-ink leading-snug">
             {cleanHeading(citation.heading_path).split(" > ").slice(-1)[0] || citation.title}
           </span>
           <span className="mt-0.5 block mono text-[12px] text-ink-3 break-all">
@@ -401,7 +435,7 @@ function Excerpt({
 
       {open && (
         <div className="border-t border-rule px-4 py-3">
-          <div className="text-[15px] leading-[1.6] text-ink whitespace-pre-wrap wrap-break-word">
+          <div className="serif text-[16.5px] leading-[1.65] text-ink whitespace-pre-wrap wrap-break-word">
             <AnswerText
               text={whole || !long ? body : clip(body, LIMIT)}
               citation={(marker, key) => <span key={key}>[{marker}]</span>}
@@ -433,7 +467,7 @@ function Excerpt({
 function VersionDifference({ conflicts }: { conflicts: Conflict[] }) {
   return (
     <section aria-label="Differences between releases" className="mt-2 lg:mt-2">
-      <h2 className="text-[20px] font-extrabold text-ink">
+      <h2 className="serif font-medium text-[26px] leading-tight text-ink">
         This reads differently in Kubernetes {conflicts[0].other_version}
       </h2>
       <p className="mt-1 text-[15px] text-ink-2 max-w-[62ch]">
@@ -469,9 +503,9 @@ function ConflictPair({ conflict }: { conflict: Conflict }) {
         ).map(([tone, version, note, pieces]) => (
           <div key={tone} className={`px-4 sm:px-5 py-4 ${tone === "other" ? "sm:border-l border-t sm:border-t-0 border-rule bg-paper/50" : ""}`}>
             <p className="machine text-ink-2 mb-2">
-              <span className="font-bold text-ink">v{version}</span> · {note}
+              <span className="font-semibold text-ink">Kubernetes {version}</span>, {note}
             </p>
-            <p className="text-[14.5px] leading-[1.65] text-ink whitespace-pre-wrap wrap-break-word">
+            <p className="serif text-[16px] leading-[1.65] text-ink whitespace-pre-wrap wrap-break-word">
               <DiffText pieces={pieces} tone={tone} />
             </p>
           </div>
@@ -489,7 +523,7 @@ function ConflictPair({ conflict }: { conflict: Conflict }) {
 function Abstention({ answer }: { answer: string }) {
   return (
     <div className="mt-8 sheet px-5 sm:px-6 py-5 max-w-[70ch]">
-      <p className="text-[18px] leading-[1.65] text-ink">{answer}</p>
+      <p className="serif text-[20px] leading-[1.6] text-ink">{answer}</p>
       <p className="mt-3 text-[15px] text-ink-2">
         The system declines rather than answer from excerpts that do not support a claim. That is the
         intended behaviour when the documentation does not cover a question.
@@ -600,12 +634,12 @@ function LeaderLine({
         d={path.d}
         className="leader-path"
         fill="none"
-        stroke="var(--color-ink)"
-        strokeWidth="1.25"
+        stroke="var(--color-act)"
+        strokeWidth="1.5"
         style={{ ["--leader-length" as string]: path.length }}
       />
-      <circle cx={path.a[0]} cy={path.a[1]} r="3.5" fill="var(--color-ink)" />
-      <circle cx={path.b[0]} cy={path.b[1]} r="3.5" fill="var(--color-sheet)" stroke="var(--color-ink)" strokeWidth="1.25" />
+      <circle cx={path.a[0]} cy={path.a[1]} r="4" fill="var(--color-act)" />
+      <circle cx={path.b[0]} cy={path.b[1]} r="4" fill="var(--color-sheet)" stroke="var(--color-act)" strokeWidth="1.5" />
     </svg>
   );
 }

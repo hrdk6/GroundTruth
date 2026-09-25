@@ -1,43 +1,55 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   GroundTruth — an answer is a test run.
+   GroundTruth — every claim sounded against its source.
 
-   Each claim is a case, judged supported, partly supported, or unsupported
-   against the excerpt it cites, and the page reads like a well-set test
-   report: ruled rows on white sheets over cool paper, not chat bubbles.
+   A ground truth is what a sailor finds by sounding: a weighted line dropped
+   until it touches the bottom. Kubernetes is the helmsman. So the page is a
+   quiet sea chart: a harbour-navy masthead with depth contours, chart-white
+   paper below, and claims read like soundings -- each one marked by whether
+   it touched the source.
 
-   Light, because the reader is a reviewer at a desk in daylight who opened a
-   link from a README. Verdicts are drawn by fill first (solid, half, hollow)
-   and hue second, so they survive grayscale and colour blindness. Ultramarine
-   is spent on exactly one thing, asking; nothing else competes with it.
+   Verdicts are still drawn by fill first (solid, half, hollow) and hue
+   second, so they survive grayscale and colour blindness. The focused claim
+   is marked the way a fact-checker marks a galley: a highlighter wash in its
+   verdict colour.
 --------------------------------------------------------------------------- */
 
 @theme {
-  --color-paper: #f3f4f1;
+  --color-paper: #f4f5f9;
   --color-sheet: #ffffff;
-  --color-well: #eaece7;
-  --color-rule: #dadcd6;
-  --color-rule-strong: #b8bcb3;
+  --color-well: #eceef4;
+  --color-rule: #dfe2ea;
+  --color-rule-strong: #bcc2d0;
 
-  --color-ink: #15171c;
-  --color-ink-2: #454a54;
-  --color-ink-3: #666c78;
+  --color-ink: #151a33;
+  --color-ink-2: #464d66;
+  --color-ink-3: #666e87;
 
-  --color-pass: #1e7a4c;
-  --color-pass-wash: #e2f0e7;
-  --color-partial: #8f5b0f;
-  --color-partial-fill: #d69e2e;
-  --color-partial-wash: #f6ecd6;
-  --color-fail: #b8322c;
-  --color-fail-wash: #f8e1de;
+  /* The harbour: masthead, hero, and the wordmark's water. */
+  --color-harbor: #172056;
+  --color-harbor-2: #222c6e;
+  --color-harbor-line: #34408a;
+  --color-harbor-ink: #eef0ff;
+  --color-harbor-dim: #aab2e2;
 
-  /* Asking, and keyboard focus. Nothing else. */
-  --color-act: #2b44ff;
-  --color-act-deep: #1c30d6;
-  --color-act-wash: #e6e9ff;
+  --color-pass: #1c7a4e;
+  --color-pass-wash: #dcf2e5;
+  --color-partial: #8a5a0b;
+  --color-partial-fill: #e0a526;
+  --color-partial-wash: #fbefcf;
+  --color-fail: #b33a2e;
+  --color-fail-wash: #fbe2de;
 
-  --font-sans: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
+  /* Asking, and keyboard focus. On the harbour the button is periwinkle. */
+  --color-act: #3f51e0;
+  --color-act-deep: #2f3fc4;
+  --color-act-wash: #e4e7ff;
+  --color-signal: #9fb0ff;
+  --color-signal-hi: #bac6ff;
+
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
   --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
@@ -108,28 +120,56 @@
     font-variant-ligatures: none;
   }
 
+  /* The reading face: questions, claims, excerpts. Optical sizing on, so the
+     same family is a display face at 56px and a text face at 17px. */
+  .serif {
+    font-family: var(--font-serif);
+    font-optical-sizing: auto;
+  }
+
   /* Numbers in columns must line up to be comparable at a glance. */
   .tnum {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
   }
 
-  /* The report sheet: white, one hairline, and a shadow with real offset. */
+  /* A sheet of chart paper: white, one hairline, a soft offset shadow. */
   .sheet {
     background: var(--color-sheet);
     border: 1px solid var(--color-rule);
-    border-radius: 6px;
+    border-radius: 10px;
     box-shadow:
-      0 1px 2px rgb(21 23 28 / 0.04),
-      0 6px 18px -8px rgb(21 23 28 / 0.1);
+      0 1px 2px rgb(21 26 51 / 0.04),
+      0 10px 28px -14px rgb(21 26 51 / 0.14);
   }
 
-  /* Small uppercase mono: the report's machine voice for verdicts and units. */
+  /* Small supporting labels: verdict words, version headers, units. Sentence
+     case in the interface face -- a label, not a machine readout. */
   .machine {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+
+  /* The fact-checker's marker: a wash across the lower part of the line,
+     following the text as it wraps. */
+  .marked {
+    background-image: linear-gradient(
+      to bottom,
+      transparent 0.55em,
+      var(--mark, var(--color-pass-wash)) 0.55em,
+      var(--mark, var(--color-pass-wash)) 1.2em,
+      transparent 1.2em
+    );
+    background-size: 100% 1.65em;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* On the harbour, focus rings are periwinkle: ultramarine on navy vanishes. */
+  .on-harbor :focus-visible {
+    outline-color: var(--color-signal);
   }
 }
 
@@ -146,19 +186,19 @@
 
 .leader-path {
   stroke-dasharray: var(--leader-length, 600);
-  animation: leader-draw 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: leader-draw 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes evidence-lock {
   0% {
     box-shadow:
-      0 0 0 3px var(--color-act-wash),
-      0 6px 18px -8px rgb(21 23 28 / 0.1);
+      0 0 0 4px var(--color-act-wash),
+      0 10px 28px -14px rgb(21 26 51 / 0.14);
   }
   100% {
     box-shadow:
       0 0 0 0 transparent,
-      0 6px 18px -8px rgb(21 23 28 / 0.1);
+      0 10px 28px -14px rgb(21 26 51 / 0.14);
   }
 }
 
@@ -166,19 +206,44 @@
   animation: evidence-lock 1100ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* The wait: one unbroken stage line and a cursor that keeps walking it. It
-   loops on purpose -- the request reports nothing until it finishes, so the
-   line shows that time is passing, never which stage is running. */
-@keyframes stage-walk {
-  from {
-    left: -18%;
+/* The wait: a sounding line. The lead drops, touches bottom, is hauled back,
+   and drops again. It loops on purpose -- the request reports nothing until it
+   finishes, so the line shows time passing, never which stage is running. */
+@keyframes sounding-drop {
+  0% {
+    transform: translateY(0);
   }
-  to {
-    left: 100%;
+  55% {
+    transform: translateY(var(--depth, 96px));
+  }
+  70% {
+    transform: translateY(calc(var(--depth, 96px) - 6px));
+  }
+  100% {
+    transform: translateY(0);
   }
 }
 
-.stage-cursor {
-  width: 18%;
-  animation: stage-walk 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+.sounding-lead {
+  animation: sounding-drop 2.6s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+
+@keyframes sounding-line {
+  0% {
+    transform: scaleY(0);
+  }
+  55% {
+    transform: scaleY(1);
+  }
+  70% {
+    transform: scaleY(0.94);
+  }
+  100% {
+    transform: scaleY(0);
+  }
+}
+
+.sounding-line {
+  transform-origin: top;
+  animation: sounding-line 2.6s cubic-bezier(0.45, 0, 0.3, 1) infinite;
 }
