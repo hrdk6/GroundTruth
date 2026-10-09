@@ -93,6 +93,60 @@ For HTTPS, put a reverse proxy such as Caddy in front of port 3000 and open
 days, stays under 20% on 95th-percentile CPU, on network, and (A1 only) on
 memory. A demo that nobody visits for a week fits all three.
 
+## Google Cloud (Compute Engine)
+
+The same Compose stack on one VM. Cloud Run plus Cloud SQL would also work,
+but it costs more for a demo (Cloud SQL bills while idle), cold starts reload
+torch on every wake-up, and ingestion would need a separate job; a VM keeps
+every step above unchanged.
+
+**Machine type.** The always-free `e2-micro` has 1 GB, below the backend's
+floor. `e2-medium` (2 shared vCPUs, 4 GB) runs the stack including a rerank
+config; `e2-standard-2` (8 GB) leaves headroom and embeds faster. Both are
+billed; a new account's free-trial credit covers months of either. Check
+current prices in the console before creating.
+
+Run these from Cloud Shell, or anywhere with the `gcloud` CLI signed in.
+
+1. **Create the VM**, with a disk large enough for the images (CPU torch is
+   over a gigabyte) and the release tarballs:
+
+   ```bash
+   gcloud compute instances create groundtruth \
+       --zone=us-central1-a --machine-type=e2-medium \
+       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+       --boot-disk-size=30GB --tags=groundtruth-web
+   ```
+
+2. **Open the port.** Unlike Oracle's images, Google's Ubuntu images have no
+   host firewall to change; the VPC rule is the only one:
+
+   ```bash
+   gcloud compute firewall-rules create groundtruth-web \
+       --allow=tcp:3000 --target-tags=groundtruth-web
+   ```
+
+   Behind a reverse proxy, allow `tcp:80,tcp:443` instead.
+
+3. **Connect**, then follow steps 3-7 of the Compose section above (install
+   Docker, clone, write `.env`, start, ingest, check):
+
+   ```bash
+   gcloud compute ssh groundtruth --zone=us-central1-a
+   ```
+
+4. **Keep the address.** The external IP is ephemeral and changes if the VM is
+   stopped. To keep it, promote it to a static address:
+
+   ```bash
+   IP=$(gcloud compute instances describe groundtruth --zone=us-central1-a \
+       --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+   gcloud compute addresses create groundtruth-ip --region=us-central1 --addresses=$IP
+   ```
+
+The site is then `http://<IP>:3000`. A stopped VM bills only for its disk and
+any static address it holds.
+
 ## Render
 
 Deployable, but not on a 512 MB instance: the backend's resident floor is at
