@@ -110,7 +110,7 @@ def _run(request: IngestRequest, config_name: str) -> None:
 
 @router.post("", status_code=202, dependencies=[Depends(require_admin)], summary="Start ingestion")
 async def start_ingest(request: IngestRequest) -> dict[str, Any]:
-    config = resolve_config(request.config_name)
+    config = resolve_config(request.config_name, served_only=False)
     unknown = sorted(set(request.versions or []) - set(VERSION_BRANCHES))
     if unknown:
         raise HTTPException(422, f"Unknown versions {unknown}; known: {sorted(VERSION_BRANCHES)}")

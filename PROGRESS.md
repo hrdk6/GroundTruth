@@ -143,6 +143,10 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
       longer fail on a URL-encoded password
 - [ ] The production stack built and driven by CI's `docker` job — added,
       not yet run
+- [x] Serving safeguards (D24): `GT_SERVED_CONFIGS` allow-list (closes L27
+      for the Compose stack), a global rate limit and concurrency cap on
+      `/query`, one model load however many first requests, encoder warmed at
+      startup, a smaller retry budget for web requests
 
 ---
 

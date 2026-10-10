@@ -16,6 +16,7 @@ They cover the three properties that only a real database can demonstrate:
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import pytest
@@ -748,14 +749,12 @@ def test_trace_stats_aggregate_stages_across_queries(
     ingested, db_session, config, llm_client
 ) -> None:
     from fastapi.testclient import TestClient
+    from sqlalchemy import delete
 
     from app.core.db import session_scope
     from app.main import create_app
-    from app.tracing.tracer import Tracer
-
-    from sqlalchemy import delete
-
     from app.models import Trace
+    from app.tracing.tracer import Tracer
 
     pipeline = _decomposing(config).model_copy(update={"name": "stats-under-test"})
     # Traces outlive a test run; count only this one's.
@@ -909,9 +908,30 @@ def test_tied_lexical_scores_are_ordered_by_chunk_id(ingested, db_session, confi
     hits = lexical_search(db_session, "pod", ts_rank, version="1.28", k=50)
     pairs = [(c.scores["lexical"], c.chunk_id) for c in hits]
 
-    assert any(a[0] == b[0] for a, b in zip(pairs, pairs[1:], strict=False)), (
+    assert any(a[0] == b[0] for a, b in itertools.pairwise(pairs)), (
         "the query must actually produce ties for this test to mean anything"
     )
     assert pairs == sorted(pairs, key=lambda pair: (-pair[0], pair[1]))
     again = lexical_search(db_session, "pod", ts_rank, version="1.28", k=50)
     assert [c.chunk_id for c in again] == [c.chunk_id for c in hits]
+
+
+def test_a_version_whose_pages_are_all_tombstoned_is_not_indexed(
+    ingested, db_session, config
+) -> None:
+    """Regression: a fully tombstoned version stayed "available", so a question
+    naming it resolved to a version with nothing retrievable."""
+    from sqlalchemy import update
+
+    assert "1.26" in indexed_versions(db_session, config.chunker_name)
+    db_session.execute(
+        update(Document).where(Document.version == "1.26").values(deleted_at=func.now())
+    )
+    try:
+        assert indexed_versions(db_session, config.chunker_name) == ["1.28"]
+    finally:
+        db_session.execute(
+            update(Document).where(Document.version == "1.26").values(deleted_at=None)
+        )
+        db_session.commit()
+    assert "1.26" in indexed_versions(db_session, config.chunker_name)

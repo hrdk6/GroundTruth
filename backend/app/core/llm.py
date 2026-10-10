@@ -672,6 +672,7 @@ class LLMClient:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stop_sequences=stop_sequences,
+                attempts=self.settings.gt_llm_max_attempts,
                 tally=attempts,
             )
         except Exception as exc:

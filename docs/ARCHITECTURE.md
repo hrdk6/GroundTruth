@@ -507,3 +507,26 @@ each with a 500-character response preview. Retention bounds the total. The
 tracer's stage stack is single-threaded by design: model calls from worker
 threads take their parent from it under a lock but never push onto it, so a
 stage must not be opened from a pool thread.
+
+### D24 — `/query` is admitted, not just answered
+
+**Context.** A public deployment answered every question it was sent, using
+the operator's provider key. A full query makes five to ten model calls, and
+NVIDIA's free tier allows 40 a minute. The API ran each query on a worker
+thread, and AnyIO's default pool allows 40 of them, so a burst queued dozens
+of CPU-bound encodes on one small machine. A visitor could also pick a rerank
+config and load a ~1 GB model. The first query after a restart waited 36 s for
+the encoder to load, and two simultaneous first queries each loaded a copy.
+
+**Choice.** A gate on `app.state`: a global rate limit (429 with
+`Retry-After`), then a concurrency cap that queues briefly before answering
+503. `GT_SERVED_CONFIGS` is an allow-list for `/query` and `/versions`;
+admin ingestion ignores it. Model loads are guarded by a lock, and the
+default pipeline's encoder loads in the background at startup. A web server
+can lower `GT_LLM_MAX_ATTEMPTS` so that a stuck provider does not hold a slot
+for fifteen minutes.
+
+**Trade-off.** The limits are global (L28): one heavy user can exhaust them
+for everyone, because a per-client limit behind this proxy would be keyed on a
+header anyone can forge. A rejected request leaves a log line and no trace.
+Warming up costs the encoder's memory at boot even if no one ever asks.

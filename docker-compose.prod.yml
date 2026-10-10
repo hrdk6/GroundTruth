@@ -53,6 +53,15 @@ services:
       GT_ADMIN_TOKEN: ${GT_ADMIN_TOKEN:-}
       GT_LOG_LEVEL: ${GT_LOG_LEVEL:-INFO}
       GT_LOG_FORMAT: json
+      # What a visitor can make this server do. The rerank configs are left
+      # out: each loads a ~1 GB model on first use (LIMITATIONS L27). Every
+      # config listed here runs on the two chunk sets DEPLOY.md ingests.
+      GT_SERVED_CONFIGS: '${GT_SERVED_CONFIGS:-["full","baseline","structure_aware","hybrid_all_terms","hybrid","hybrid_bm25"]}'
+      GT_QUERY_RATE_PER_MINUTE: ${GT_QUERY_RATE_PER_MINUTE:-30}
+      GT_MAX_CONCURRENT_QUERIES: ${GT_MAX_CONCURRENT_QUERIES:-2}
+      # A web request gives up on a stuck provider sooner than an eval does.
+      GT_LLM_MAX_ATTEMPTS: ${GT_LLM_MAX_ATTEMPTS:-2}
+      GT_TRACE_RETENTION_DAYS: ${GT_TRACE_RETENTION_DAYS:-30}
     volumes:
       # Release tarballs and extracted pages, for ingesting on the server.
       - corpus:/srv/data

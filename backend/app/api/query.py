@@ -8,9 +8,10 @@ from typing import Any
 
 import anyio
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from app.api.limits import QueryGate
 from app.core.db import session_scope
 from app.core.llm import MissingAPIKeyError
 from app.core.logging import get_logger
@@ -83,23 +84,47 @@ class QueryResponse(BaseModel):
     cost_usd: float
 
 
-def resolve_config(name: str | None) -> PipelineConfig:
+def served_configs() -> list[str]:
+    """Configs `/query` will run: every file in configs/, or `GT_SERVED_CONFIGS`."""
+    available = list_configs()
+    allowed = get_settings().gt_served_configs
+    return available if allowed is None else [name for name in available if name in allowed]
+
+
+def resolve_config(name: str | None, *, served_only: bool = True) -> PipelineConfig:
     """A config *by name*, from `configs/` only.
 
     `load_config` also accepts filesystem paths, which is right for a CLI and
     wrong for an HTTP endpoint: a client must not be able to make the server
-    open arbitrary files. Anything not in the listing is a 404.
+    open arbitrary files. Anything not in the listing is a 404. Queries are
+    further limited to the served configs; the admin ingest endpoint is not,
+    since building a chunk set for evaluation is not serving it.
     """
     config_name = name or get_settings().gt_default_config
-    available = list_configs()
+    available = served_configs() if served_only else list_configs()
     if config_name not in available:
         raise HTTPException(404, f"No pipeline config {config_name!r}. Available: {available}")
     return load_config(config_name)
 
 
+def _gate(raw: Request) -> QueryGate:
+    gate: QueryGate | None = getattr(raw.app.state, "query_gate", None)
+    if gate is None:
+        # An app built without `create_app` (a test mounting the router alone).
+        gate = raw.app.state.query_gate = QueryGate.from_settings(get_settings())
+    return gate
+
+
 @router.post("/query", response_model=QueryResponse, summary="Ask a grounded question")
-async def query(request: QueryRequest) -> QueryResponse:
+async def query(request: QueryRequest, raw: Request) -> QueryResponse:
+    gate = _gate(raw)
+    gate.check_rate()
     config = resolve_config(request.config_name)
+    async with gate.slot():
+        return await _answer(request, config)
+
+
+async def _answer(request: QueryRequest, config: PipelineConfig) -> QueryResponse:
     service = AnswerService(config)
     tracer = Tracer(request.question, config_name=config.name, config_hash=config.config_hash)
 
@@ -182,7 +207,7 @@ async def versions() -> VersionsResponse:
 
     return VersionsResponse(
         versions=await anyio.to_thread.run_sync(run),
-        configs=list_configs(),
+        configs=served_configs(),
         default_config=get_settings().gt_default_config,
     )
 

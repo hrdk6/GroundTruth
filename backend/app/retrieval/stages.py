@@ -19,6 +19,7 @@ and falls back to an exact scan when the index still comes back short.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from sqlalchemy import Float, Select, and_, bindparam, cast, func, literal, select, text
@@ -393,13 +394,19 @@ class CrossEncoderReranker:
         self.model_name = model_name
         self.batch_size = batch_size
         self._model: object | None = None
+        # bge-reranker-base is ~1 GB resident (LIMITATIONS L27): two concurrent
+        # first requests each loading a copy is how a small instance dies.
+        self._lock = threading.Lock()
 
     def _load(self) -> object:
-        if self._model is None:
-            from sentence_transformers import CrossEncoder
+        if self._model is not None:
+            return self._model
+        with self._lock:
+            if self._model is None:
+                from sentence_transformers import CrossEncoder
 
-            log.info("rerank.loading_model", model=self.model_name)
-            self._model = CrossEncoder(self.model_name, device="cpu")
+                log.info("rerank.loading_model", model=self.model_name)
+                self._model = CrossEncoder(self.model_name, device="cpu")
         return self._model
 
     def rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
@@ -426,9 +433,11 @@ class CrossEncoderReranker:
 
 
 _reranker_cache: dict[str, CrossEncoderReranker] = {}
+_reranker_cache_lock = threading.Lock()
 
 
 def get_reranker(model_name: str, batch_size: int = 32) -> CrossEncoderReranker:
-    if model_name not in _reranker_cache:
-        _reranker_cache[model_name] = CrossEncoderReranker(model_name, batch_size)
-    return _reranker_cache[model_name]
+    with _reranker_cache_lock:
+        if model_name not in _reranker_cache:
+            _reranker_cache[model_name] = CrossEncoderReranker(model_name, batch_size)
+        return _reranker_cache[model_name]

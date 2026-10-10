@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import admin, health, query, traces
+from app.api.limits import QueryGate
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import get_settings
 
@@ -32,6 +33,27 @@ def _prune_once(days: int) -> None:
 
     with session_scope() as session:
         prune_traces(session, older_than_days=days)
+
+
+def _warm_models(config_name: str) -> None:
+    """Load the default pipeline's encoder, off the request path.
+
+    Run in the background rather than before startup completes, so `/health`
+    answers while torch loads; a query that arrives first waits on the same
+    load (the embedder's lock) instead of starting a second one.
+    """
+    from app.core.pipeline import load_config
+    from app.ingestion.embed import get_embedder
+
+    get_embedder(load_config(config_name).embedding).warm()
+
+
+async def _warm_in_background(config_name: str) -> None:
+    try:
+        # Abandoned on shutdown: a reload mid-load should not wait for torch.
+        await anyio.to_thread.run_sync(_warm_models, config_name, abandon_on_cancel=True)
+    except Exception as exc:  # noqa: BLE001 - the first query will load it, or say why
+        log.warning("models.warm_failed", error=f"{type(exc).__name__}: {exc}"[:300])
 
 
 async def _prune_periodically(days: int) -> None:
@@ -55,16 +77,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         anthropic_key_configured=settings.has_anthropic_key,
         trace_retention_days=settings.gt_trace_retention_days,
     )
-    pruner = (
-        asyncio.create_task(_prune_periodically(settings.gt_trace_retention_days))
-        if settings.gt_trace_retention_days > 0
-        else None
-    )
+    tasks: list[asyncio.Task[None]] = []
+    if settings.gt_trace_retention_days > 0:
+        tasks.append(asyncio.create_task(_prune_periodically(settings.gt_trace_retention_days)))
+    if settings.gt_warm_models:
+        tasks.append(asyncio.create_task(_warm_in_background(settings.gt_default_config)))
     yield
-    if pruner is not None:
-        pruner.cancel()
+    for task in tasks:
+        task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await pruner
+            await task
     log.info("app.shutdown")
 
 
@@ -88,6 +110,10 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type", "X-Admin-Token"],
     )
+
+    # Per app, not per module: a test that builds an app with other settings
+    # gets its own limits.
+    app.state.query_gate = QueryGate.from_settings(get_settings())
 
     app.include_router(health.router)
     app.include_router(query.router)

@@ -38,6 +38,9 @@ class HealthResponse(BaseModel):
     llm_key_configured: bool
     anthropic_key_configured: bool
     llm_cache: dict[str, Any]
+    # Whether the default pipeline's encoder is in memory. False right after
+    # startup: the first query waits for it to load.
+    embedding_model_loaded: bool = False
 
 
 @router.get("/health", response_model=HealthResponse, summary="Service and dependency health")
@@ -63,4 +66,15 @@ async def health() -> HealthResponse:
         llm_key_configured=settings.has_llm_key,
         anthropic_key_configured=settings.has_anthropic_key,
         llm_cache=dict(get_llm_client().cache.stats()),
+        embedding_model_loaded=_embedder_loaded(settings.gt_default_config),
     )
+
+
+def _embedder_loaded(config_name: str) -> bool:
+    from app.core.pipeline import load_config
+    from app.ingestion.embed import get_embedder
+
+    try:
+        return get_embedder(load_config(config_name).embedding).loaded
+    except (FileNotFoundError, ValueError):
+        return False

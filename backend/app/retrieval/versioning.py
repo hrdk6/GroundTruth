@@ -144,8 +144,20 @@ def resolve_version(
 
 
 def indexed_versions(session: Session, chunker_name: str | None = None) -> list[str]:
-    """Versions that actually have chunks, newest last."""
-    statement = select(Chunk.version).distinct()
+    """Versions that have chunks of *live* documents, newest last.
+
+    Live, because retrieval filters out tombstoned documents. A version whose
+    pages were all tombstoned -- which ingesting another corpus root does
+    (LIMITATIONS L13) -- used to stay "available", so a question naming it
+    resolved to a version with nothing retrievable, and abstained with
+    `no_excerpts` instead of saying the version is not indexed.
+    """
+    statement = (
+        select(Chunk.version)
+        .join(Document, Document.id == Chunk.document_id)
+        .where(Document.deleted_at.is_(None))
+        .distinct()
+    )
     if chunker_name:
         statement = statement.where(Chunk.chunker_name == chunker_name)
     versions = list(session.execute(statement).scalars())

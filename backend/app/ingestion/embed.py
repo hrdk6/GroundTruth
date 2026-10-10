@@ -9,6 +9,8 @@ somebody eventually passes wrong.
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 import numpy as np
@@ -20,11 +22,17 @@ log = get_logger(__name__)
 
 
 class Embedder:
-    """sentence-transformers encoder, loaded lazily and cached per process."""
+    """sentence-transformers encoder, loaded lazily and cached per process.
+
+    Loading takes seconds to tens of seconds (torch, then the weights), and the
+    API answers on worker threads, so the load is guarded: concurrent first
+    queries wait for one load instead of each loading a copy into memory.
+    """
 
     def __init__(self, config: EmbeddingConfig) -> None:
         self.config = config
         self._model: Any | None = None
+        self._lock = threading.Lock()
 
     @property
     def model_name(self) -> str:
@@ -34,23 +42,43 @@ class Embedder:
     def dimension(self) -> int:
         return self.config.dimension
 
-    def _load(self) -> Any:
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
+    @property
+    def loaded(self) -> bool:
+        return self._model is not None
 
-            log.info("embed.loading_model", model=self.config.model)
-            self._model = SentenceTransformer(self.config.model, device="cpu")
-            # Renamed in sentence-transformers 5; keep working on either side.
-            model = self._model
-            dimension_of = getattr(model, "get_embedding_dimension", None)
-            actual = dimension_of() if dimension_of else model.get_sentence_embedding_dimension()
-            if actual != self.config.dimension:
-                raise ValueError(
-                    f"Config says dimension={self.config.dimension} but "
-                    f"{self.config.model} produces {actual}. The `chunks.embedding` "
-                    f"column is typed, so this needs a migration, not a config edit."
-                )
+    def _load(self) -> Any:
+        if self._model is not None:
+            return self._model
+        with self._lock:
+            if self._model is None:
+                self._model = self._load_model()
         return self._model
+
+    def _load_model(self) -> Any:
+        from sentence_transformers import SentenceTransformer
+
+        started = time.perf_counter()
+        log.info("embed.loading_model", model=self.config.model)
+        model = SentenceTransformer(self.config.model, device="cpu")
+        # Renamed in sentence-transformers 5; keep working on either side.
+        dimension_of = getattr(model, "get_embedding_dimension", None)
+        actual = dimension_of() if dimension_of else model.get_sentence_embedding_dimension()
+        if actual != self.config.dimension:
+            raise ValueError(
+                f"Config says dimension={self.config.dimension} but "
+                f"{self.config.model} produces {actual}. The `chunks.embedding` "
+                f"column is typed, so this needs a migration, not a config edit."
+            )
+        log.info(
+            "embed.model_loaded",
+            model=self.config.model,
+            seconds=round(time.perf_counter() - started, 1),
+        )
+        return model
+
+    def warm(self) -> None:
+        """Load the model now, so the first query does not pay for it."""
+        self._load()
 
     def _encode(self, texts: list[str]) -> np.ndarray:
         model = self._load()
@@ -82,11 +110,13 @@ class Embedder:
 
 
 _cache: dict[tuple[str, int], Embedder] = {}
+_cache_lock = threading.Lock()
 
 
 def get_embedder(config: EmbeddingConfig) -> Embedder:
     """Shared embedder per (model, dimension); loading weights is expensive."""
     key = (config.model, config.dimension)
-    if key not in _cache:
-        _cache[key] = Embedder(config)
-    return _cache[key]
+    with _cache_lock:
+        if key not in _cache:
+            _cache[key] = Embedder(config)
+        return _cache[key]

@@ -18,7 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, computed_field
+from pydantic import Field, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root: backend/app/core/settings.py -> backend/app/core -> backend/app -> backend -> repo
@@ -76,12 +76,35 @@ class Settings(BaseSettings):
     # call per sentence). Environment, not experiment: it changes latency and
     # nothing else, since every call is cached under its own prompt.
     gt_llm_max_concurrency: int = Field(default=4, ge=1, le=32)
+    # Provider invocations per model call, retries included. Five suits an
+    # eval, which would rather wait out a rate limit than lose a run. A web
+    # request should give up sooner: with a 180s provider timeout, five
+    # attempts can hold a query -- and its concurrency slot -- for 15 minutes.
+    gt_llm_max_attempts: int = Field(default=5, ge=1, le=10)
 
     # --- API ----------------------------------------------------------------
     # The pipeline `/query` runs when the caller names none. `full` is the
     # shipping configuration; `baseline` exists to be beaten, and serving it by
     # default would hide verification and conflict notes behind a dropdown.
     gt_default_config: str = "full"
+    # Configs `/query` will run, as a JSON list (`["full","baseline"]`). Unset
+    # serves every file in configs/. A public deployment should list what it
+    # can afford: a rerank config loads a ~1 GB model on first use (L27).
+    gt_served_configs: list[str] | None = None
+    # Queries the API runs at once. Each holds a worker thread, CPU for the
+    # encoder, and model calls against the provider's rate limit; past this
+    # many, a request waits up to `gt_query_queue_seconds`, then gets a 503.
+    gt_max_concurrent_queries: int = Field(default=4, ge=1, le=64)
+    gt_query_queue_seconds: float = Field(default=20.0, ge=0.0, le=600.0)
+    # Queries accepted per minute across all clients; 0 disables the limit.
+    # Global rather than per client: behind the frontend's proxy every
+    # request arrives from one address, and what runs out is the provider's
+    # quota, which every client shares. A full query makes ~5-10 model calls
+    # against a free tier allowing 40 a minute.
+    gt_query_rate_per_minute: int = Field(default=30, ge=0)
+    # Load the default config's embedding model at startup, so the first
+    # query does not wait for it (36 s on the dev machine).
+    gt_warm_models: bool = True
     # Origins allowed to call the API from a browser.
     gt_cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     # Shared secret for admin endpoints (`POST /ingest`). Unset disables them:
@@ -92,6 +115,19 @@ class Settings(BaseSettings):
     # Traces older than this are deleted by the API every few hours
     # (`app.tracing.retention`). 0 keeps them forever.
     gt_trace_retention_days: int = Field(default=30, ge=0)
+
+    @model_validator(mode="after")
+    def _default_config_is_served(self) -> Settings:
+        # Otherwise every question asked without naming a pipeline -- which is
+        # every question from the Ask page's default -- is a 404.
+        if self.gt_served_configs is not None and self.gt_default_config not in (
+            self.gt_served_configs
+        ):
+            raise ValueError(
+                f"GT_DEFAULT_CONFIG={self.gt_default_config!r} is not in "
+                f"GT_SERVED_CONFIGS={self.gt_served_configs}"
+            )
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

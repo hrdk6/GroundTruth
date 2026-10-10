@@ -20,9 +20,19 @@ Linux differ somewhat, and the CI job summary has those.
 
 Plus an LLM key for generation (`.env.example`, option A or B).
 
-The rerank configs are selectable from the Ask page, so size a server for
-them or expect the process to be killed when a visitor picks one (LIMITATIONS
-L27).
+The Compose stack serves every config *except* the two that rerank
+(`GT_SERVED_CONFIGS`), because choosing one loads a ~1 GB model (LIMITATIONS
+L27). To offer them, size the server for them and list them in `.env`.
+
+A public server answers whatever anyone asks, with your provider key. The
+Compose stack therefore limits `/query` to 30 questions a minute across all
+visitors (`GT_QUERY_RATE_PER_MINUTE`), runs two at a time
+(`GT_MAX_CONCURRENT_QUERIES`; others wait up to 20 s, then get a 503), and
+gives a stuck provider two attempts per call rather than five
+(`GT_LLM_MAX_ATTEMPTS`). A full query makes five to ten model calls, so
+check these against your provider's rate limit. The encoder loads at startup,
+so `/health` reports `embedding_model_loaded: false` for the first few
+seconds.
 
 ## One server with Docker Compose (recommended)
 

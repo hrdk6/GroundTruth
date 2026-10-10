@@ -338,7 +338,45 @@ With bge-small resident the backend holds ~510 MB before it serves a request
 pipeline dropdown lists every config, including the two that rerank:
 choosing one loads bge-reranker-base on first use and takes the process to
 ~1.6 GB, and puts CPU reranking in the query path (retrieval p50 7.8 s on dev,
-9.6 s on test; EXPERIMENTS.md). A public deployment has no way to withhold
-a config short of deleting its file from the image; an allow-list setting
-(`GT_SERVED_CONFIGS`) would be the fix.
+9.6 s on test; EXPERIMENTS.md). `GT_SERVED_CONFIGS` now lists what
+`/query` will run, and the production Compose file leaves the rerank configs
+out, so a visitor can no longer pick one. The memory floor is unchanged.
+
+## Found adding per-component observability
+
+### L28 — The query limits are global, not per visitor
+
+`/query` admits `GT_QUERY_RATE_PER_MINUTE` questions a minute and runs
+`GT_MAX_CONCURRENT_QUERIES` at once, across everyone. One visitor sending
+questions in a loop can therefore use up the allowance for all the others.
+The limit is global on purpose. Behind the frontend's proxy every request
+comes from the same address, and a per-client key taken from a forwarded
+header is only as honest as whoever sets that header. The scarce resource,
+the provider quota, is shared anyway.
+
+**Fix.** Have the proxy set a client identifier the backend can trust (a
+signed header, or the reverse proxy's own `X-Real-IP` on a backend no one else
+can reach), then key a second, per-client limit on it.
+
+### L29 — A trace stores a preview of every model response
+
+Each model call span keeps the first 500 characters of the response, and each
+stage keeps its inputs, so a trace contains the user's question, sub-queries,
+rewrites and answer drafts. Retention (30 days by default) is the only control.
+There is no redaction, and no switch that turns tracing off for a deployment
+that should not keep questions at all.
+
+**Fix.** A `GT_TRACE_CONTENT` setting (`full` / `metadata`) that drops the
+text fields and keeps timings, counts, tokens and statuses.
+
+### L30 — `unverifiable` is decided by arithmetic, not by a retry
+
+When verifier calls fail, the sentence is scored `unsupported`, and the
+abstention is labelled `unverifiable` if the answer would have passed with
+those checks passing. Nothing re-asks the verifier. A brief provider outage
+therefore still withholds an answer that may have been fine. It is now at
+least *labelled* as an outage rather than blamed on the answer.
+
+**Fix.** Retry only the failed checks once before deciding, at the cost of
+latency on exactly the requests that are already slow.
 
