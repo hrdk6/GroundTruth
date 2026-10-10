@@ -219,6 +219,15 @@ Merging per-sub-query result lists by raw score is the likely culprit — each
 sub-query's best chunk should be guaranteed a context slot. With one item per
 split this is a diagnosis, not a measurement.
 
+The per-stage breakdown in every record now says how rarely the question
+arises. In the `full` records at `33ace42`, decomposition split exactly one
+scored item: the test multi-hop question. The dev multi-hop question was
+classified single-hop and never split. Two unanswerable items also split. A
+merge strategy that interleaves sub-query results by rank, instead of comparing
+BM25 scores across different queries, is the principled fix. But it can only
+ever be measured on that one item, so it waits for a golden set with enough
+multi-hop questions to test it.
+
 ### L16 — Integration tests used to destroy the developer's corpus
 
 The integration tests truncate the corpus tables. They originally ran against

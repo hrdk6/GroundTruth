@@ -143,9 +143,11 @@ These bit us once; they are encoded in `app/core/llm.py`.
 ## Where the project actually stands
 
 **Everything runs, is measured, and was audited. Total LLM spend: $0.00.** The
-records in `experiments/` are all from clean trees after the measurement audit;
-the pre-audit ones are in `experiments/superseded/` and must not be quoted as
-results. `full` is the shipping pipeline (hybrid retrieval with BM25 lexical
+records in `experiments/` are all from one clean tree (`33ace42`) after the
+measurement audit and its second pass (nDCG over-counting, unbroken lexical
+ties); everything they replaced is in `experiments/superseded/` and must not be
+quoted as results. Every record now has a per-stage `stages` block: check its
+`degraded_items` before trusting a run's numbers. `full` is the shipping pipeline (hybrid retrieval with BM25 lexical
 ranking, rewrite, decomposition, verification). The honest summary: **no
 retrieval variant is distinguishable from noise on this golden set** — the only
 distinguishable effect is the audit's correction of the baseline. Read
