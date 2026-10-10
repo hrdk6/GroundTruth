@@ -199,11 +199,16 @@ def lexical_search(
         tsquery = func.websearch_to_tsquery(language, question)
     rank = func.ts_rank_cd(Chunk.tsv, tsquery).cast(Float).label("rank")
 
+    # Chunk id breaks ties. `ts_rank_cd` ties often (short queries, chunks
+    # sharing a term once), and without a second key Postgres returns tied rows
+    # in whatever order the plan produced them: the committed `hybrid` record
+    # gave a different ranking on two consecutive runs. The BM25 query has
+    # always broken ties this way.
     statement = (
         _base_query(config, version)
         .add_columns(rank)
         .where(Chunk.tsv.op("@@")(tsquery))
-        .order_by(rank.desc())
+        .order_by(rank.desc(), Chunk.id)
         .limit(limit)
     )
 

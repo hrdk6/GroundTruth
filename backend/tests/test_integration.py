@@ -897,3 +897,21 @@ def test_bm25_prefers_the_rare_term_over_repeated_common_ones(ingested, db_sessi
     bm25 = _with_lexical(config, match="any", ranking="bm25")
     hits = lexical_search(db_session, "pod container runAsGroup", bm25, version="1.28", k=3)
     assert "runAsGroup" in hits[0].text
+
+
+def test_tied_lexical_scores_are_ordered_by_chunk_id(ingested, db_session, config) -> None:
+    """Regression: `ts_rank_cd` ranked by score alone, and ties came back in plan order.
+
+    The committed `hybrid` record gave a different ranking on two consecutive
+    runs of the same code, so it could not be reproduced from its SHA.
+    """
+    ts_rank = _with_lexical(config, ranking="ts_rank_cd", match="any")
+    hits = lexical_search(db_session, "pod", ts_rank, version="1.28", k=50)
+    pairs = [(c.scores["lexical"], c.chunk_id) for c in hits]
+
+    assert any(a[0] == b[0] for a, b in zip(pairs, pairs[1:], strict=False)), (
+        "the query must actually produce ties for this test to mean anything"
+    )
+    assert pairs == sorted(pairs, key=lambda pair: (-pair[0], pair[1]))
+    again = lexical_search(db_session, "pod", ts_rank, version="1.28", k=50)
+    assert [c.chunk_id for c in again] == [c.chunk_id for c in hits]
