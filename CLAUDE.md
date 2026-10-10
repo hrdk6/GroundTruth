@@ -51,7 +51,9 @@ automatically — there is no `activate` step.
 - **Postgres 16 + pgvector** comes from the `pgvector/pgvector:pg16` image.
   There is no native Windows pgvector build worth the trouble; Docker is the
   supported path.
-- **Docker cannot run on this machine**, and does not need to. WSL2 will not
+- **Docker cannot run on this machine**, and does not need to. (As of
+  10 Oct 2026 Docker Desktop does run here, and the dev Compose stack was up;
+  the facts below are from before that.) WSL2 will not
   start (hardware virtualization is disabled in firmware), so instead use
   **`make db-local`**: the `pgserver` wheel ships a real PostgreSQL 16.2 with
   pgvector that runs as an ordinary user process. Every measured result in this
@@ -177,8 +179,11 @@ make results                           # regenerate the README table
 Free-tier realities that cost time to learn:
 
 - **Groq is the documented free provider for a deployed demo** (`.env.example`,
-  option B): `llama-3.3-70b-versatile` generates, `llama-3.1-8b-instant`
-  verifies and judges, so the judge is not the generating model. Its limits are
+  option B): `openai/gpt-oss-120b` generates, `openai/gpt-oss-20b` verifies
+  and judges, so the judge is not the generating model. The Llama models in
+  Groq's docs 404 on this account; list what a key can use before choosing.
+  Every cold `full` query hit the token-per-minute limit once or more (13-23 s
+  each), and answers vary run to run, so warm the cache with demo questions. Its limits are
   per *token* per minute, per account; `retry_after_seconds` in `app/core/llm.py`
   honours the server's `Retry-After`. **Every number in `experiments/` was
   measured with Nemotron**; the LLM cache key includes the base URL, so a Groq
