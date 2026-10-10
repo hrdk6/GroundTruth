@@ -310,3 +310,53 @@ def test_an_empty_completion_is_returned_but_never_cached(llm_client: LLMClient)
     assert llm_client.complete("q", model="m").text == ""
     llm_client.complete("q", model="m")
     assert len(fake.calls) == 2
+
+
+class _Rejected(Exception):
+    """A 429 as the OpenAI SDK raises it: a status and a response with headers."""
+
+    def __init__(self, retry_after: str | None) -> None:
+        super().__init__("429 rate limit exceeded")
+        self.status_code = 429
+        self.response = type("Response", (), {"headers": {"retry-after": retry_after}})()
+
+
+def test_the_servers_retry_after_is_honoured(
+    llm_client: LLMClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Groq limits tokens per minute and says how long to wait; 2s was a guess."""
+    slept: list[float] = []
+    monkeypatch.setattr("app.core.llm.time.sleep", slept.append)
+
+    class Once(FakeProvider):
+        def invoke(self, **kwargs: object):  # type: ignore[no-untyped-def]
+            if not self.calls:
+                self.calls.append(kwargs)
+                raise _Rejected("17")
+            return super().invoke(**kwargs)
+
+    llm_client._client = Once()
+    assert llm_client.complete("q", model="m").text == "hello"
+    assert slept == [17.0]
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [("17", 17.0), ("0.5", 2.0), ("9999", 60.0), ("soon", 2.0), (None, 2.0)],
+)
+def test_retry_wait_is_capped_and_survives_a_bad_header(
+    llm_client: LLMClient, monkeypatch: pytest.MonkeyPatch, header: str | None, expected: float
+) -> None:
+    slept: list[float] = []
+    monkeypatch.setattr("app.core.llm.time.sleep", slept.append)
+
+    class Once(FakeProvider):
+        def invoke(self, **kwargs: object):  # type: ignore[no-untyped-def]
+            if not self.calls:
+                self.calls.append(kwargs)
+                raise _Rejected(header)
+            return super().invoke(**kwargs)
+
+    llm_client._client = Once()
+    llm_client.complete("q", model="m")
+    assert slept == [expected]

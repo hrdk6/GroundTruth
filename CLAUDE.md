@@ -176,6 +176,15 @@ make results                           # regenerate the README table
 
 Free-tier realities that cost time to learn:
 
+- **Groq is the documented free provider for a deployed demo** (`.env.example`,
+  option B): `llama-3.3-70b-versatile` generates, `llama-3.1-8b-instant`
+  verifies and judges, so the judge is not the generating model. Its limits are
+  per *token* per minute, per account; `retry_after_seconds` in `app/core/llm.py`
+  honours the server's `Retry-After`. **Every number in `experiments/` was
+  measured with Nemotron**; the LLM cache key includes the base URL, so a Groq
+  run is cold and its answers will differ. Never present a Groq demo answer as
+  a recorded result.
+
 - **The NVIDIA catalogue lists ~82 models and serves almost none of them.** Of
   58 chat models probed with a 25s timeout, 55 timed out or 404'd. Always
   `make llm-check` before a long run.

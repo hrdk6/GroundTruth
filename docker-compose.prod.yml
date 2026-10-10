@@ -60,7 +60,8 @@ services:
       GT_QUERY_RATE_PER_MINUTE: ${GT_QUERY_RATE_PER_MINUTE:-30}
       GT_MAX_CONCURRENT_QUERIES: ${GT_MAX_CONCURRENT_QUERIES:-2}
       # A web request gives up on a stuck provider sooner than an eval does.
-      GT_LLM_MAX_ATTEMPTS: ${GT_LLM_MAX_ATTEMPTS:-2}
+      # Three, so one rate-limit wait (the client honours Retry-After) is survivable.
+      GT_LLM_MAX_ATTEMPTS: ${GT_LLM_MAX_ATTEMPTS:-3}
       GT_TRACE_RETENTION_DAYS: ${GT_TRACE_RETENTION_DAYS:-30}
     volumes:
       # Release tarballs and extracted pages, for ingesting on the server.

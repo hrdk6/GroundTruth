@@ -485,6 +485,31 @@ def _is_retryable(exc: Exception) -> bool:
     return any(marker in text for marker in _RETRYABLE_TEXT)
 
 
+# The longest a single retry will wait, whatever the server asks for. A provider
+# asking for minutes would otherwise hold a web request, and its concurrency
+# slot, for that long.
+MAX_RETRY_WAIT_SECONDS = 60.0
+
+
+def retry_after_seconds(exc: Exception) -> float | None:
+    """The wait a provider asked for with `Retry-After`, in seconds, if any.
+
+    Groq sends it on every 429, and its limits are per *minute* (tokens as well
+    as requests): the correct wait is often ten-odd seconds, which a fixed 2s
+    backoff burns through in one or two attempts. Only the numeric form is
+    read; an HTTP-date is ignored.
+    """
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is None:
+        return None
+    try:
+        value = headers.get("retry-after")
+        wait = float(value) if value is not None else None
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return wait if wait is not None and wait >= 0 else None
+
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -767,7 +792,8 @@ class LLMClient:
     ) -> ProviderResult:
         """Call the provider, backing off on rate limits.
 
-        Free tiers are rate limited (NVIDIA NIM allows 40 requests/minute) and
+        Free tiers are rate limited (NVIDIA NIM: 40 requests/minute; Groq: tokens per
+        minute as well, with a `Retry-After` on every 429) and
         regularly return 503 when busy. An eval makes hundreds of sequential
         calls, so without a backoff a long run dies partway through and the
         partial result is worthless.
@@ -792,9 +818,18 @@ class LLMClient:
             except Exception as exc:
                 if attempt == attempts or not _is_retryable(exc):
                     raise
-                log.warning("llm.rate_limited", attempt=attempt, sleeping=delay, model=model)
-                time.sleep(delay)
-                delay = min(delay * 2, 60.0)
+                # Honour what the server asked for, capped, over our own guess.
+                asked = retry_after_seconds(exc)
+                wait = min(max(delay, asked or 0.0), MAX_RETRY_WAIT_SECONDS)
+                log.warning(
+                    "llm.rate_limited",
+                    attempt=attempt,
+                    sleeping=round(wait, 1),
+                    retry_after=asked,
+                    model=model,
+                )
+                time.sleep(wait)
+                delay = min(delay * 2, MAX_RETRY_WAIT_SECONDS)
         raise RuntimeError("unreachable: retry loop exhausted without raising")
 
     # --- cache (de)serialization ----------------------------------------
