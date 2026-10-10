@@ -126,7 +126,6 @@ def test_match_records_first_rank_of_each_gold() -> None:
     ]
     match = match_candidates(candidates, [gold()])
     assert match.first_rank == {0: 2}
-    assert match.relevant_ranks == [2, 3]
     assert match.best_rank == 2
 
 
@@ -184,6 +183,28 @@ def test_ndcg_discounts_lower_ranks() -> None:
     )
     assert ndcg_at_k(third, 10) < ndcg_at_k(top, 10)
     assert ndcg_at_k(third, 10) == pytest.approx(1 / math.log2(4))
+
+
+def test_ndcg_counts_each_piece_of_gold_once() -> None:
+    """Regression: every chunk containing the quote counted as relevant.
+
+    Overlapping chunks and a section split into several chunks all match one
+    quote, so DCG kept growing while IDCG assumed one relevant chunk -- one
+    golden item scored 3.31, against a ceiling of 1.0.
+    """
+    quote = "the kubelet restarts the container"
+    candidates = [make_candidate(i, text=f"{quote} ({i})") for i in range(1, 5)]
+    match = match_candidates(candidates, [gold()])
+    assert ndcg_at_k(match, 10) == pytest.approx(1.0)
+
+    later = [make_candidate(1, text="no"), *candidates]
+    assert ndcg_at_k(match_candidates(later, [gold()]), 10) == pytest.approx(1 / math.log2(3))
+
+
+def test_ndcg_never_exceeds_one_when_one_chunk_holds_all_the_gold() -> None:
+    golds = [gold(key_quote="alpha"), gold(key_quote="beta")]
+    match = match_candidates([make_candidate(1, text="alpha and beta")], golds)
+    assert ndcg_at_k(match, 10) == pytest.approx(1.0)
 
 
 def test_aggregate_excludes_items_with_no_gold() -> None:

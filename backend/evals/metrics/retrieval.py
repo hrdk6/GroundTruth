@@ -39,8 +39,6 @@ class MatchResult:
 
     # Gold index -> 1-based rank of the first candidate matching it.
     first_rank: dict[int, int] = field(default_factory=dict)
-    # Every rank that matched any gold, for nDCG.
-    relevant_ranks: list[int] = field(default_factory=list)
     total_gold: int = 0
 
     @property
@@ -63,7 +61,6 @@ def match_candidates(candidates: list[Candidate], gold: list[GoldEvidence]) -> M
         return result
 
     for rank, candidate in enumerate(candidates, start=1):
-        matched_any = False
         for gold_index, evidence in enumerate(gold):
             if evidence.matches(
                 source_path=candidate.source_path,
@@ -71,10 +68,7 @@ def match_candidates(candidates: list[Candidate], gold: list[GoldEvidence]) -> M
                 heading_path=candidate.heading_path,
                 text=candidate.text,
             ):
-                matched_any = True
                 result.first_rank.setdefault(gold_index, rank)
-        if matched_any:
-            result.relevant_ranks.append(rank)
 
     return result
 
@@ -110,17 +104,25 @@ def reciprocal_rank(match: MatchResult, k: int = MRR_CUTOFF) -> float:
 
 
 def ndcg_at_k(match: MatchResult, k: int) -> float:
-    """nDCG with binary relevance.
+    """nDCG with binary relevance, one relevant hit per piece of gold evidence.
 
-    The ideal ranking puts all `total_gold` relevant chunks in the top
-    positions, so IDCG sums the first `min(total_gold, k)` discounts.
+    The ideal ranking puts each of the `total_gold` pieces in the top
+    positions, so IDCG sums the first `min(total_gold, k)` discounts -- and DCG
+    must count each piece once, at the rank it first appears, or the two are
+    not measuring the same thing. It used to count *every* chunk containing a
+    gold quote: overlapping chunks, and a section split into several, all
+    scored. One item reached 3.31 against a ceiling of 1.0, and every dev
+    nDCG@10 in the pre-fix records is inflated by it.
+
+    The clamp covers one chunk that satisfies two pieces of evidence at once,
+    which is a perfect retrieval and would otherwise score above 1.
     """
     if not match.total_gold:
         return 0.0
 
-    dcg = sum(1.0 / math.log2(rank + 1) for rank in match.relevant_ranks if rank <= k)
+    dcg = sum(1.0 / math.log2(rank + 1) for rank in match.first_rank.values() if rank <= k)
     ideal = sum(1.0 / math.log2(i + 2) for i in range(min(match.total_gold, k)))
-    return dcg / ideal if ideal else 0.0
+    return min(1.0, dcg / ideal) if ideal else 0.0
 
 
 @dataclass
