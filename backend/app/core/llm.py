@@ -18,6 +18,9 @@ PROJECT_SPEC.md S3.4, and it buys three things:
    harness can be run on a free tier. The provider is part of the cache key
    and is recorded on every experiment, so results stay attributable to the
    model that produced them.
+5. **One place to observe calls.** A view made with `observed(...)` reports
+   every call -- cache hit, success, or failure after retries -- to a callback,
+   which is how each model call becomes a span under the stage that made it.
 
 Cache semantics worth knowing: a cache *hit* reports `cost_usd == 0.0` because
 no money changed hands, while `list_cost_usd` keeps what the call would have
@@ -33,7 +36,9 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -153,6 +158,50 @@ class LLMResponse:
         d = asdict(self)
         d["usage"] = asdict(self.usage)
         return d
+
+
+# Stop reasons meaning "the token budget ran out", per provider.
+_TRUNCATION_STOPS = frozenset({"max_tokens", "length"})
+# How much of a response an observer sees: enough to read a malformed verdict.
+PREVIEW_CHARS = 500
+
+
+@dataclass(frozen=True)
+class LLMCallRecord:
+    """One `complete` call as an observer sees it, whatever its outcome."""
+
+    model: str
+    provider: str
+    started_at: datetime
+    # Wall time of the call as the caller experienced it: a cache read, or the
+    # provider call including every retry and its backoff.
+    latency_ms: float
+    cached: bool
+    prompt_chars: int
+    max_tokens: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    stop_reason: str | None = None
+    # Provider invocations, retries included. 0 for a cache hit.
+    attempts: int = 1
+    text_preview: str = ""
+    # Set when the call raised after its retries; the exception still propagates.
+    error: str | None = None
+
+    @property
+    def truncated(self) -> bool:
+        return self.stop_reason in _TRUNCATION_STOPS
+
+
+LLMObserver = Callable[[LLMCallRecord], None]
+
+
+@dataclass
+class _Attempts:
+    """How many times the provider was invoked for one call."""
+
+    count: int = 0
 
 
 @dataclass
@@ -457,12 +506,34 @@ class LLMClient:
         # Views made by `with_tracker` share the provider through their root,
         # so a scoped client never opens a second connection pool.
         self._root: LLMClient = self
+        self._observer: LLMObserver | None = None
 
     def with_tracker(self, tracker: CostTracker) -> LLMClient:
         """The same client -- settings, cache, provider -- counting into `tracker`."""
         view = copy.copy(self)
         view.tracker = tracker
         return view
+
+    def observed(self, observer: LLMObserver | None) -> LLMClient:
+        """A view that reports every call to `observer`.
+
+        Idempotent for the same observer, so a stage handed an already-observed
+        client by its caller does not record each call twice. Views made from
+        this one (`child`, `with_tracker`) keep the observer.
+        """
+        if observer is None or self._observer == observer:
+            return self
+        view = copy.copy(self)
+        view._observer = observer
+        return view
+
+    def _notify(self, record: LLMCallRecord) -> None:
+        if self._observer is None:
+            return
+        try:
+            self._observer(record)
+        except Exception as exc:  # noqa: BLE001 - an observer must not fail the call
+            log.warning("llm.observer_failed", error=str(exc))
 
     def child(self) -> LLMClient:
         """A view with its own tracker that also rolls up into this one's.
@@ -559,25 +630,69 @@ class LLMClient:
         )
         if temperature is not None and not _supports_temperature(model):
             log.debug("llm.temperature_unsupported", model=model, temperature=temperature)
+
+        called_at = datetime.now(UTC)
+        started = time.perf_counter()
+        observed: dict[str, Any] = {
+            "model": model,
+            "provider": self.settings.gt_llm_provider,
+            "started_at": called_at,
+            "prompt_chars": len(prompt) + len(system or ""),
+            "max_tokens": max_tokens,
+        }
+
         if use_cache:
             hit = self.cache.get(cache_key)
             if hit is not None:
                 response = self._from_cache(hit, model)
                 self.tracker.record(response)
                 log.debug("llm.cache_hit", model=model, key=cache_key[:12])
+                self._notify(
+                    LLMCallRecord(
+                        **observed,
+                        latency_ms=(time.perf_counter() - started) * 1000,
+                        cached=True,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        stop_reason=response.stop_reason,
+                        attempts=0,
+                        text_preview=response.text[:PREVIEW_CHARS],
+                    )
+                )
                 return response
 
-        started = time.perf_counter()
-        provider = self._ensure_client()
-        result = self._invoke_with_retry(
-            provider,
-            model=model,
-            prompt=prompt,
-            system=system,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stop_sequences=stop_sequences,
-        )
+        attempts = _Attempts()
+        try:
+            provider = self._ensure_client()
+            result = self._invoke_with_retry(
+                provider,
+                model=model,
+                prompt=prompt,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop_sequences=stop_sequences,
+                tally=attempts,
+            )
+        except Exception as exc:
+            latency_ms = (time.perf_counter() - started) * 1000
+            log.warning(
+                "llm.call_failed",
+                model=model,
+                attempts=attempts.count,
+                error=type(exc).__name__,
+                latency_ms=round(latency_ms, 1),
+            )
+            self._notify(
+                LLMCallRecord(
+                    **observed,
+                    latency_ms=latency_ms,
+                    cached=False,
+                    attempts=attempts.count,
+                    error=f"{type(exc).__name__}: {str(exc)[:300]}",
+                )
+            )
+            raise
         latency_ms = (time.perf_counter() - started) * 1000
 
         usage = LLMUsage(
@@ -618,6 +733,21 @@ class LLMClient:
             output_tokens=usage.output_tokens,
             cost_usd=round(cost, 6),
             latency_ms=round(latency_ms, 1),
+            attempts=attempts.count,
+            stop_reason=result.stop_reason,
+        )
+        self._notify(
+            LLMCallRecord(
+                **observed,
+                latency_ms=latency_ms,
+                cached=False,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                cost_usd=cost,
+                stop_reason=result.stop_reason,
+                attempts=attempts.count,
+                text_preview=result.text[:PREVIEW_CHARS],
+            )
         )
         return response
 
@@ -632,6 +762,7 @@ class LLMClient:
         temperature: float | None,
         stop_sequences: list[str] | None,
         attempts: int = 5,
+        tally: _Attempts | None = None,
     ) -> ProviderResult:
         """Call the provider, backing off on rate limits.
 
@@ -639,9 +770,14 @@ class LLMClient:
         regularly return 503 when busy. An eval makes hundreds of sequential
         calls, so without a backoff a long run dies partway through and the
         partial result is worthless.
+
+        `tally` counts invocations, so a trace can show a call that only
+        succeeded on its fourth try -- the latency is otherwise unexplained.
         """
         delay = 2.0
         for attempt in range(1, attempts + 1):
+            if tally is not None:
+                tally.count = attempt
             try:
                 result: ProviderResult = provider.invoke(
                     model=model,

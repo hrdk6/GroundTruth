@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import structlog
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -73,6 +74,8 @@ class QueryResponse(BaseModel):
     conflict_note: str
     verification: dict[str, Any]
     abstained: bool
+    # no_excerpts | model_declined | unsupported | unverifiable, or null.
+    abstain_reason: str | None = None
     regenerated: bool
     config_name: str
     trace_id: str | None
@@ -104,7 +107,14 @@ async def query(request: QueryRequest) -> QueryResponse:
     # session, CPU-bound encoders), so it runs in a worker thread rather than
     # blocking the event loop for every other request.
     def run() -> AnswerResult:
-        with session_scope() as session:
+        # Every log line this query emits carries its trace id, so a warning
+        # in the logs (a retry, a fallback) leads straight to its trace. The
+        # worker thread runs in a copy of the request's context, so the
+        # binding ends with it.
+        with (
+            structlog.contextvars.bound_contextvars(trace_id=tracer.trace_id),
+            session_scope() as session,
+        ):
             return service.answer(session, request.question, version=request.version, tracer=tracer)
 
     try:
@@ -136,6 +146,7 @@ async def query(request: QueryRequest) -> QueryResponse:
         conflict_note=result.conflict_note,
         verification=result.verification,
         abstained=result.abstained,
+        abstain_reason=result.abstain_reason,
         regenerated=result.regenerated,
         config_name=config.name,
         trace_id=result.trace_id,

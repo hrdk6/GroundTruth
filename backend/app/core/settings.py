@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     # an endpoint that re-embeds the corpus should not be open by default.
     gt_admin_token: SecretStr | None = None
 
+    # --- Observability -----------------------------------------------------
+    # Traces older than this are deleted by the API every few hours
+    # (`app.tracing.retention`). 0 keeps them forever.
+    gt_trace_retention_days: int = Field(default=30, ge=0)
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:

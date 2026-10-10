@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import func, select, text
 
 from app.core.pipeline import PipelineConfig, load_config
+from app.generation.answer import AnswerService
 from app.ingestion.pipeline import ingest
 from app.models import Chunk, Document
 from app.retrieval.retriever import Retriever
@@ -637,6 +638,188 @@ def test_the_runner_writes_a_complete_honest_record(ingested, db_session, config
     # No version was passed, so every item's version came from detection or
     # the latest-version default -- here the fixture's newest, 1.28.
     assert {i["version_used"] for i in answerable} == {"1.28"}
+
+    # Per-stage observability, per item and across the run.
+    stages = record["stages"]
+    assert set(stages) >= {"version_detection", "dense", "lexical", "fusion"}
+    assert stages["dense"]["items"] == record["dataset_size"]
+    assert stages["dense"]["degraded_items"] == 0
+    assert all("dense" in i["stages"] for i in record["items"])
+
+
+# ---------------------------------------------------------------------------
+# Observability against the database
+# ---------------------------------------------------------------------------
+def test_ingestion_records_where_its_time_went(ingested) -> None:
+    assert {"parse", "chunk", "embed", "write", "mark_latest"} <= set(ingested.stage_seconds)
+    assert ingested.stage_seconds["embed"] > 0
+
+
+class _RoutedLLM:
+    """Decomposition, rewriting and generation by system prompt; verification by 'Claim:'."""
+
+    def __init__(self, *, rewrite_fails: bool = False) -> None:
+        self.rewrite_fails = rewrite_fails
+
+    def invoke(self, **kwargs: object):  # type: ignore[no-untyped-def]
+        from app.core.llm import ProviderResult
+
+        system, prompt = str(kwargs.get("system") or ""), str(kwargs["prompt"])
+        if "Claim:" in prompt:
+            return ProviderResult(text='{"verdict": "supported"}', input_tokens=20, output_tokens=5)
+        if "multiple searches" in system:
+            return ProviderResult(
+                text='{"multi_hop": true, "subqueries": ["container resource limits", '
+                '"pod security context group"]}'
+            )
+        if "rewrite user questions" in system:
+            if self.rewrite_fails:
+                raise ValueError("rewrite model unavailable")
+            return ProviderResult(text=prompt.split("Question: ", 1)[1].split("\n", 1)[0] + " spec")
+        return ProviderResult(
+            text="Containers can set resource limits [1].", input_tokens=200, output_tokens=12
+        )
+
+
+def _decomposing(config: PipelineConfig) -> PipelineConfig:
+    retrieval = config.retrieval.model_copy(
+        update={
+            "decomposition": config.retrieval.decomposition.model_copy(update={"enabled": True}),
+            "query_rewrite": config.retrieval.query_rewrite.model_copy(update={"enabled": True}),
+        }
+    )
+    verification = config.verification.model_copy(update={"enabled": True})
+    return config.model_copy(update={"retrieval": retrieval, "verification": verification})
+
+
+def test_retrieval_spans_record_what_each_stage_received_and_why(
+    ingested, db_session, config, llm_client
+) -> None:
+    from app.tracing.tracer import LLM_SPAN, Tracer
+
+    llm_client._client = _RoutedLLM()
+    tracer = Tracer("limits and group ids")
+    Retriever(_decomposing(config), llm_client=llm_client).retrieve(
+        db_session, "limits and group ids", tracer=tracer
+    )
+
+    rewrites = [s for s in tracer.spans if s.name == "query_rewrite"]
+    # Each rewrite span names the sub-query it rewrote, not the user's question.
+    assert [s.input["query"] for s in rewrites] == [
+        "container resource limits",
+        "pod security context group",
+    ]
+    assert all(s.attributes["llm_calls"] == 1 for s in rewrites)
+    llm_parents = {s.parent_span_id for s in tracer.spans if s.name == LLM_SPAN}
+    assert llm_parents == {
+        s.id for s in tracer.spans if s.name in ("decomposition", "query_rewrite")
+    }
+
+    dense = next(s for s in tracer.spans if s.name == "dense")
+    assert len(dense.attributes["per_query"]) == 2
+    assert dense.attributes["exact_fallbacks"] >= 0 and dense.attributes["embed_ms"] > 0
+    lexical = next(s for s in tracer.spans if s.name == "lexical")
+    assert len(lexical.attributes["hits_per_query"]) == len(lexical.input["queries"])
+    fusion = next(s for s in tracer.spans if s.name == "fusion")
+    assert sum(fusion.attributes["context_from"].values()) == config.retrieval.k_final
+    assert tracer.degraded_stages() == []
+
+
+def test_a_failed_rewrite_is_a_degraded_span_not_a_silent_one(
+    ingested, db_session, config, llm_client
+) -> None:
+    from app.tracing.tracer import Tracer
+
+    llm_client._client = _RoutedLLM(rewrite_fails=True)
+    tracer = Tracer("q")
+    result, _ = Retriever(_decomposing(config), llm_client=llm_client).retrieve(
+        db_session, "limits and group ids", tracer=tracer
+    )
+
+    assert result.candidates, "the query still succeeded"
+    rewrites = [s for s in tracer.spans if s.name == "query_rewrite"]
+    assert {s.status for s in rewrites} == {"degraded"}
+    assert rewrites[0].output["fallback_reason"] == "call failed: ValueError"
+    assert rewrites[0].attributes["llm_errors"] == 1
+    assert tracer.degraded_stages() == ["query_rewrite"]
+
+
+def test_trace_stats_aggregate_stages_across_queries(
+    ingested, db_session, config, llm_client
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.core.db import session_scope
+    from app.main import create_app
+    from app.tracing.tracer import Tracer
+
+    from sqlalchemy import delete
+
+    from app.models import Trace
+
+    pipeline = _decomposing(config).model_copy(update={"name": "stats-under-test"})
+    # Traces outlive a test run; count only this one's.
+    with session_scope() as session:
+        session.execute(delete(Trace).where(Trace.config_name == pipeline.name))
+    llm_client._client = _RoutedLLM()
+    service = AnswerService(pipeline, llm_client=llm_client)
+    for question in ("limits and group ids", "what are resource limits?"):
+        tracer = Tracer(question, config_name=pipeline.name)
+        with session_scope() as session:
+            result = service.answer(session, question, tracer=tracer)
+        assert result.trace_id == tracer.trace_id
+
+    client = TestClient(create_app())
+    stats = client.get("/traces/stats", params={"config_name": "stats-under-test"}).json()
+
+    assert stats["totals"]["traces"] == 2
+    stages = {s["name"]: s for s in stats["stages"]}
+    assert stages["dense"]["traces"] == 2
+    assert stages["generation"]["llm_calls"] == 2
+    assert stages["llm"]["llm_calls"] == stages["llm"]["runs"]
+    assert stages["llm"]["llm_calls"] == sum(
+        s["llm_calls"] for name, s in stages.items() if name != "llm"
+    ), "every model call is accounted to exactly one stage"
+    assert stages["generation"]["p95_ms"] >= stages["generation"]["p50_ms"]
+    # Ordered as a query flows through the pipeline.
+    names = [s["name"] for s in stats["stages"]]
+    assert names.index("version_detection") < names.index("dense") < names.index("generation")
+
+    detail = client.get(f"/traces/{result.trace_id}").json()
+    assert detail["degraded_stages"] == [] and detail["abstain_reason"] is None
+    assert detail["meta"]["llm_calls"] == sum(1 for s in detail["spans"] if s["name"] == "llm")
+
+
+def test_old_traces_are_pruned_and_feedback_outlives_them(ingested, db_session) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.models import Feedback, Span, Trace
+    from app.tracing.retention import prune_traces
+    from app.tracing.tracer import Tracer
+
+    old, new = Tracer("old question"), Tracer("new question")
+    for tracer in (old, new):
+        with tracer.span("dense"):
+            pass
+        tracer.flush(db_session)
+    db_session.get(Trace, old.trace_id).started_at = datetime.now(UTC) - timedelta(days=40)  # type: ignore[union-attr]
+    db_session.add(Feedback(trace_id=old.trace_id, helpful=False))
+    db_session.commit()
+
+    assert prune_traces(db_session, older_than_days=30) >= 1
+    db_session.commit()
+
+    assert db_session.get(Trace, old.trace_id) is None
+    assert db_session.get(Trace, new.trace_id) is not None
+    orphaned = db_session.execute(
+        select(func.count()).select_from(Span).where(Span.trace_id == old.trace_id)
+    ).scalar_one()
+    assert orphaned == 0, "spans go with their trace"
+    votes = db_session.execute(
+        select(func.count()).select_from(Feedback).where(Feedback.trace_id == old.trace_id)
+    ).scalar_one()
+    assert votes == 1
+    assert prune_traces(db_session, older_than_days=0) == 0, "0 disables retention"
 
 
 def _with_lexical(config: PipelineConfig, **changes: object) -> PipelineConfig:

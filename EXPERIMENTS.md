@@ -284,6 +284,35 @@ was served from the LLM cache — so their p50 measures the cache, not a query
 tens of seconds, dominated by one verification call per sentence; measuring it
 properly needs a run with the cache disabled.
 
+## Observability: tracing changes no result
+
+Per-component observability (ARCHITECTURE D23) puts every eval item under an
+in-memory tracer and every model call behind an observer. Both only read, but
+"only reads" is a claim, so it was tested. Every recorded `golden_v1`
+retrieval run except `hybrid_rerank` (the reranker makes a replay take minutes,
+and it shares the code path) was re-run with tracing on and `--no-write`, and
+diffed against its committed record, metric by metric and chunk id by chunk id:
+
+| Record | Result |
+|---|---|
+| `baseline` dev, test | identical |
+| `structure_aware` dev, test | identical |
+| `hybrid_all_terms` dev, test | identical |
+| `hybrid_bm25` dev, test (shipping retrieval) | identical |
+| `hybrid` dev, test | **differs, and differs between two runs of the old code too** |
+
+The `hybrid` difference is not tracing. The same replay on the code *before*
+this change, run twice in a row, gave a different ranking each time:
+`ts_rank_cd` produces ties, and that query orders by rank alone, so Postgres
+returns tied chunks in whatever order the plan produces. The BM25 query breaks
+ties by chunk id; this one did not. So the committed `hybrid` record cannot be
+reproduced, which is a measurement defect of its own (see below).
+
+From here on every record carries a `stages` block (p50/p95 per stage, model
+calls, cache hits, cost, and how many items each stage *fell back* on), and
+every item its own per-stage breakdown. A metric that moved because the
+rewrite stage silently failed on half the items now says so in the record.
+
 ---
 
 ## What's still open

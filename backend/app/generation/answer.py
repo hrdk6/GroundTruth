@@ -17,6 +17,10 @@ changed, each with its own citation, so nothing is silently blended.
 Cost is tracked per request, on a child of the shared client. The API answers
 several questions at once on worker threads, and a cost read as a delta off one
 shared tracker would bill each request for its neighbours' calls.
+
+Every abstention records *why* (`abstain_reason`): nothing was retrieved, the
+model declined, the answer failed verification, or the verifier itself failed.
+Those four have four different fixes, and "abstained" alone names none of them.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ import re
 import time
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
@@ -52,6 +56,18 @@ from app.tracing.tracer import Tracer
 log = get_logger(__name__)
 
 _CITATION = re.compile(r"\[(\d+)\]")
+
+AbstainReason = Literal[
+    # Retrieval returned nothing to answer from.
+    "no_excerpts",
+    # The model wrote the abstention sentence itself.
+    "model_declined",
+    # Verification judged the answer, and its retry, unsupported.
+    "unsupported",
+    # As above, but only because verifier calls failed: with those checks
+    # passed the answer would have cleared the threshold.
+    "unverifiable",
+]
 
 
 @dataclass
@@ -89,6 +105,7 @@ class AnswerResult:
     # with the verifier about where sentences end.
     segments: list[dict[str, Any]] = field(default_factory=list)
     abstained: bool = False
+    abstain_reason: AbstainReason | None = None
     regenerated: bool = False
     retrieval: RetrievalResult | None = None
     trace_id: str | None = None
@@ -117,6 +134,7 @@ class AnswerResult:
             "conflicts": self.conflicts,
             "verification": self.verification,
             "abstained": self.abstained,
+            "abstain_reason": self.abstain_reason,
             "regenerated": self.regenerated,
             "trace_id": self.trace_id,
             "cost_usd": round(self.cost_usd, 6),
@@ -139,6 +157,20 @@ def is_abstention(text: str) -> bool:
     stripped = text.strip().rstrip(".").lower()
     target = ABSTAIN_MESSAGE.rstrip(".").lower()
     return stripped == target or stripped.startswith(target[:50])
+
+
+def citation_markers(answer: str, excerpts: int) -> dict[str, Any]:
+    """Which `[n]` markers an answer used, and how many point at nothing.
+
+    A marker beyond the numbered context is a citation the model invented.
+    `extract_citations` drops it silently, which is right for the reader and
+    wrong for a trace: it is the clearest hallucination signal there is.
+    """
+    used = sorted({int(n) for n in _CITATION.findall(normalize_citations(answer))})
+    return {
+        "markers": used,
+        "out_of_range": [n for n in used if not 1 <= n <= excerpts],
+    }
 
 
 def extract_citations(answer: str, candidates: list[Candidate]) -> list[Citation]:
@@ -207,6 +239,8 @@ class AnswerService:
         started = time.perf_counter()
         # This request's own tracker, rolling up into the shared one.
         llm = self.llm.child()
+        if tracer is not None:
+            llm = llm.observed(tracer.record_llm_call)
 
         retrieval, decision = self.retriever.retrieve(
             session, question, version=version, tracer=tracer, llm_client=llm
@@ -234,6 +268,12 @@ class AnswerService:
                     "citations": len(result.citations),
                     "conflicts": len(result.conflicts),
                     "regenerated": result.regenerated,
+                    "abstain_reason": result.abstain_reason,
+                    "support_fraction": result.verification.get("support_fraction"),
+                    "verifier_errors": result.verification.get("verifier_errors", 0),
+                    "llm_calls": llm.tracker.calls,
+                    "llm_cached_calls": llm.tracker.cached_calls,
+                    "context_size": len(retrieval.candidates),
                 },
             )
         return result
@@ -257,6 +297,7 @@ class AnswerService:
                 version_used=decision.version,
                 version_reason=decision.reason,
                 abstained=True,
+                abstain_reason="no_excerpts",
                 verification={"support_fraction": 1.0, "checked": 0, "reason": "no excerpts"},
                 segments=segment_answer(ABSTAIN_MESSAGE, None),
             )
@@ -264,12 +305,27 @@ class AnswerService:
         verification_config = self.config.verification
         model = self.config.generation.model or llm.default_model
 
+        def describe(span: Any, text: str) -> None:
+            """What a generation span records about the draft it produced."""
+            span.output = {"answer": text}
+            span.attributes.update(
+                {
+                    "model": model,
+                    "prompt": self.config.generation.prompt,
+                    "answer_chars": len(text),
+                    "declined": is_abstention(text),
+                    **citation_markers(text, len(candidates)),
+                }
+            )
+            if not text:
+                # An empty completion: the call "succeeded" and said nothing.
+                span.status = "degraded"
+
         started = time.perf_counter()
         with _span(tracer, "generation", question=question, excerpts=len(candidates)) as span:
             answer_text = self._generate(llm, question, candidates, decision.version)
             if span is not None:
-                span.output = {"answer": answer_text}
-                span.attributes["model"] = model
+                describe(span, answer_text)
         timings["generation"] = _elapsed_ms(started)
 
         report = VerificationReport()
@@ -299,8 +355,7 @@ class AnswerService:
                         llm, question, candidates, decision.version, feedback=report.feedback()
                     )
                     if span is not None:
-                        span.output = {"answer": retry}
-                        span.attributes["model"] = model
+                        describe(span, retry)
                 timings["generation"] += _elapsed_ms(started)
                 regenerated = True
 
@@ -315,6 +370,7 @@ class AnswerService:
                         answer_text, report = retry, retry_report
 
         abstained = is_abstention(answer_text)
+        abstain_reason: AbstainReason | None = "model_declined" if abstained else None
         if (
             verification_config.enabled
             and not abstained
@@ -322,7 +378,20 @@ class AnswerService:
             and report.support_fraction < verification_config.support_threshold
         ):
             # Still unsupported after the retry: abstaining is the honest outcome.
-            log.info("answer.abstaining", support_fraction=round(report.support_fraction, 3))
+            # Unless the shortfall is entirely checks that never returned a
+            # verdict, in which case the honest *label* is different.
+            abstain_reason = (
+                "unverifiable"
+                if report.verifier_errors
+                and report.support_if_errors_passed >= verification_config.support_threshold
+                else "unsupported"
+            )
+            log.info(
+                "answer.abstaining",
+                support_fraction=round(report.support_fraction, 3),
+                reason=abstain_reason,
+                verifier_errors=report.verifier_errors,
+            )
             answer_text = ABSTAIN_MESSAGE
             abstained = True
 
@@ -343,13 +412,29 @@ class AnswerService:
             # excerpts the answer never used -- a warning about nothing the
             # reader was told.
             cited = [candidates[c.marker - 1] for c in citations]
-            conflicts = detect_conflicts(
-                session,
-                cited,
-                chunker_name=self.config.chunker_name,
-                answer_version=decision.version,
-                all_versions=indexed_versions(session, self.config.chunker_name),
-            )
+            with _span(
+                tracer, "conflict_detection", version=decision.version, cited_sections=len(cited)
+            ) as span:
+                conflicts = detect_conflicts(
+                    session,
+                    cited,
+                    chunker_name=self.config.chunker_name,
+                    answer_version=decision.version,
+                    all_versions=indexed_versions(session, self.config.chunker_name),
+                )
+                if span is not None:
+                    span.output = {
+                        "conflicts": len(conflicts),
+                        "sections": [
+                            {
+                                "source_path": c.source_path,
+                                "heading_path": c.heading_path,
+                                "other_version": c.other_version,
+                                "similarity": round(c.similarity, 4),
+                            }
+                            for c in conflicts
+                        ],
+                    }
             timings["conflict_detection"] = (time.perf_counter() - started) * 1000
             conflict_note = format_conflict_note(conflicts)
 
@@ -363,6 +448,7 @@ class AnswerService:
             verification=report.to_dict() if verification_config.enabled else {},
             segments=segment_answer(answer_text, report if verification_config.enabled else None),
             abstained=abstained,
+            abstain_reason=abstain_reason,
             regenerated=regenerated,
             timings_ms=timings,
         )
@@ -392,9 +478,18 @@ class AnswerService:
                     "support_fraction": round(report.support_fraction, 4),
                     "checked": report.checked,
                     "unsupported": len(report.unsupported),
+                    "verifier_errors": report.verifier_errors,
+                    "skipped_non_factual": report.skipped_non_factual,
+                    "verdicts": {
+                        verdict: sum(1 for s in report.sentences if s.verdict == verdict)
+                        for verdict in ("supported", "partially", "unsupported")
+                    },
+                    "uncited": sum(1 for s in report.sentences if s.reason == "no citation"),
                 }
                 if baseline is not None:
                     span.output["kept"] = report.support_fraction >= baseline.support_fraction
+                if report.verifier_errors:
+                    span.status = "degraded"
         timings["verification"] = timings.get("verification", 0.0) + _elapsed_ms(started)
         return report
 

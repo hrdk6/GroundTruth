@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ApiError, api, type Span, type TraceDetail } from "@/lib/api";
 import { AnswerText } from "@/components/answer-text";
 import {
+  ABSTAIN_LABEL,
   ErrorNote,
   Field,
   Spinner,
@@ -22,6 +23,32 @@ import {
   formatMs,
   formatTime,
 } from "@/components/primitives";
+
+/** Bar and label colour by span status: a fallback is not a failure. */
+const STATUS_COLOUR: Record<string, string> = {
+  ok: "var(--color-act)",
+  degraded: "var(--color-partial-fill)",
+  error: "var(--color-fail)",
+};
+const LABEL_COLOUR: Record<string, string> = {
+  ok: "var(--color-ink)",
+  degraded: "var(--color-partial)",
+  error: "var(--color-fail)",
+};
+
+/** The short note beside a span's bar: results for a stage, tokens for a model call. */
+function spanNote(span: Span): string {
+  if (span.name === "llm") {
+    const a = span.attributes ?? {};
+    if (span.status === "error") return "failed";
+    if (a.cached) return "cached";
+    const tries = Number(a.attempts ?? 1);
+    if (tries > 1) return `${tries} tries`;
+    return a.output_tokens != null ? `${a.output_tokens} tok` : "";
+  }
+  const count = Number(span.output?.count ?? NaN);
+  return Number.isFinite(count) ? `${count} hits` : "";
+}
 
 interface ChunkRow {
   chunk_id: number;
@@ -157,14 +184,30 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 border-y border-rule py-4">
+      <dl className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4 border-y border-rule py-4">
         <Field label="Pipeline">{trace.config_name}</Field>
         <Field label="Answered from">{trace.version_used ? `v${trace.version_used}` : "—"}</Field>
         <Field label="Total time">{formatMs(trace.latency_ms)}</Field>
         <Field label="Cost">{formatCost(trace.cost_usd)}</Field>
-        <Field label="Stages">{trace.spans.length}</Field>
+        <Field label="Stages">{trace.spans.filter((s) => s.parent_span_id == null).length}</Field>
+        <Field label="Model calls">{trace.spans.filter((s) => s.name === "llm").length}</Field>
         <Field label="When">{formatTime(trace.started_at)}</Field>
+        {trace.abstained && trace.abstain_reason && (
+          <Field label="Declined because" prose>
+            {ABSTAIN_LABEL[trace.abstain_reason] ?? trace.abstain_reason}
+          </Field>
+        )}
       </dl>
+
+      {trace.degraded_stages && trace.degraded_stages.length > 0 && (
+        <p className="mt-4 max-w-[80ch] text-[15px] text-ink">
+          <span className="font-bold" style={{ color: "var(--color-partial)" }}>
+            Fell back in {trace.degraded_stages.join(", ")}.
+          </span>{" "}
+          The query finished, but those stages returned a safe default instead of their result. They are marked in
+          amber below; open one for the reason.
+        </p>
+      )}
 
       <div className="mt-10 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-10 xl:gap-12">
         {/* ---------------- Waterfall ---------------- */}
@@ -200,8 +243,9 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
               {trace.spans.map((span) => {
                 const [offset, width] = axis.bars[span.span_id] ?? [0, 1];
                 const isOpen = openSpan === span.span_id;
-                const failed = span.status !== "ok";
-                const count = Number(span.output?.count ?? NaN);
+                const status = STATUS_COLOUR[span.status] ? span.status : "error";
+                // A model call sits under the stage that made it.
+                const nested = span.parent_span_id != null;
 
                 return (
                   <div key={span.span_id}>
@@ -214,13 +258,19 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                           fixed columns it was squeezed to nothing. */}
                       <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5">
                         <span
-                          className="mono text-[13px] flex-1 sm:flex-none sm:w-[10.5rem] shrink-0"
-                          style={{ color: failed ? "var(--color-fail)" : "var(--color-ink)" }}
+                          className={`mono flex-1 sm:flex-none sm:w-[10.5rem] shrink-0 ${
+                            nested ? "text-[12px] pl-4" : "text-[13px]"
+                          }`}
+                          style={{ color: nested && status === "ok" ? "var(--color-ink-3)" : LABEL_COLOUR[status] }}
                         >
-                          {span.name}
+                          {nested ? `↳ ${span.name === "llm" ? "model call" : span.name}` : span.name}
                         </span>
 
-                        <span className="order-last sm:order-none basis-full sm:basis-auto flex-1 h-3 rounded-[3px] bg-well relative overflow-hidden">
+                        <span
+                          className={`order-last sm:order-none basis-full sm:basis-auto flex-1 rounded-[3px] bg-well relative overflow-hidden ${
+                            nested ? "h-2" : "h-3"
+                          }`}
+                        >
                           <span
                             className="absolute inset-y-0 rounded-[3px]"
                             style={{
@@ -228,14 +278,13 @@ export default function TraceDetailPage({ params }: { params: Promise<{ id: stri
                               width: `${width}%`,
                               // A 3ms span on a 40s axis is still a span.
                               minWidth: 3,
-                              backgroundColor: failed ? "var(--color-fail)" : "var(--color-act)",
+                              backgroundColor: STATUS_COLOUR[status],
+                              opacity: nested && status === "ok" ? 0.55 : 1,
                             }}
                           />
                         </span>
 
-                        <span className="mono text-[12px] text-ink-3 tnum w-16 text-right">
-                          {Number.isFinite(count) ? `${count} hits` : ""}
-                        </span>
+                        <span className="mono text-[12px] text-ink-3 tnum w-16 text-right">{spanNote(span)}</span>
                         <span className="mono text-[13px] text-ink tnum w-16 text-right">
                           {formatMs(span.duration_ms)}
                         </span>

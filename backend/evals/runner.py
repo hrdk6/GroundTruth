@@ -15,6 +15,12 @@ its hash, the git SHA, the dataset version, every metric overall and per
 category, per-item results, the attribution breakdown, and the cost. That file
 is the *only* source the README table is generated from -- a number that is not
 in one of these files does not get published.
+
+Each item also runs under an in-memory tracer (never persisted), so the record
+carries a per-stage breakdown: latency percentiles, model calls, cache hits,
+cost, and how many items each stage *fell back* on. A metric that moved
+because the rewrite stage silently failed on half the items is otherwise
+indistinguishable from one that moved because retrieval changed.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from app.core.pipeline import PipelineConfig, load_config
 from app.core.settings import REPO_ROOT, get_settings
 from app.generation.answer import AnswerService
 from app.retrieval.retriever import Retriever
+from app.tracing.tracer import NullTracer
 from evals.attribution.classify import Attribution, classify_failure, summarize
 from evals.compare import confidence_block
 from evals.dataset.schema import GoldenDataset, load_dataset
@@ -144,9 +151,12 @@ class ItemResult:
 
     attribution: str = "none"
     attribution_detail: str = ""
+    abstain_reason: str | None = None
     latency_ms: float = 0.0
     cost_usd: float = 0.0
     stage_timings_ms: dict[str, float] = field(default_factory=dict)
+    # Per stage: time, model calls, tokens, cost, worst status.
+    stages: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -180,10 +190,40 @@ class ItemResult:
             "citation_precision": self.citation_precision,
             "attribution": self.attribution,
             "attribution_detail": self.attribution_detail,
+            "abstain_reason": self.abstain_reason,
             "latency_ms": round(self.latency_ms, 2),
             "cost_usd": round(self.cost_usd, 6),
             "stage_timings_ms": {k: round(v, 2) for k, v in self.stage_timings_ms.items()},
+            "stages": self.stages,
         }
+
+
+def summarize_stages(results: list[ItemResult]) -> dict[str, dict[str, Any]]:
+    """Across items, per stage: how often it ran, its latency, calls, cost, fallbacks."""
+    names = list(dict.fromkeys(name for r in results for name in r.stages))
+    summary: dict[str, dict[str, Any]] = {}
+    for name in names:
+        entries = [r.stages[name] for r in results if name in r.stages]
+        times = [float(e["ms"]) for e in entries]
+        llm_calls = sum(int(e.get("llm_calls", 0)) for e in entries)
+        cached = sum(int(e.get("llm_cached", 0)) for e in entries)
+        summary[name] = {
+            "items": len(entries),
+            "p50_ms": round(percentile(times, 50), 2),
+            "p95_ms": round(percentile(times, 95), 2),
+            "llm_calls": llm_calls,
+            "llm_cached": cached,
+            "llm_errors": sum(int(e.get("llm_errors", 0)) for e in entries),
+            "input_tokens": sum(int(e.get("input_tokens", 0)) for e in entries),
+            "output_tokens": sum(int(e.get("output_tokens", 0)) for e in entries),
+            "cost_usd": round(sum(float(e.get("cost_usd", 0.0)) for e in entries), 6),
+            # Items on which the stage fell back or raised. Non-zero means some
+            # of this run's numbers were produced by a path the config did not
+            # ask for.
+            "degraded_items": sum(1 for e in entries if e.get("status") == "degraded"),
+            "error_items": sum(1 for e in entries if e.get("status") == "error"),
+        }
+    return summary
 
 
 def _generation_metrics(results: list[ItemResult], generation_ran: bool = True) -> dict[str, Any]:
@@ -313,6 +353,8 @@ def evaluate(
 
         item_started = time.perf_counter()
         cost_before = tracker.cost_usd
+        # In memory only: it supplies the per-stage breakdown, never a trace row.
+        tracer = NullTracer(item.question, config_name=config.name, config_hash=config.config_hash)
 
         requested = item.version if version_hint else None
         result = ItemResult(
@@ -325,7 +367,7 @@ def evaluate(
         )
 
         if mode == "full" and service is not None:
-            answer_result = service.answer(session, item.question, version=requested)
+            answer_result = service.answer(session, item.question, version=requested, tracer=tracer)
             retrieval = answer_result.retrieval
             assert retrieval is not None
             # What a reader of the text gets, version note included: that is
@@ -346,13 +388,16 @@ def evaluate(
                 for c in answer_result.citations
             ]
             result.abstained = answer_result.abstained
+            result.abstain_reason = answer_result.abstain_reason
             result.version_used = answer_result.version_used
             verification = answer_result.verification or {}
             result.support_fraction = verification.get("support_fraction")
             result.citation_precision = verification.get("citation_precision")
             result.stage_timings_ms = answer_result.timings_ms
         else:
-            retrieval, decision = retriever.retrieve(session, item.question, version=requested)
+            retrieval, decision = retriever.retrieve(
+                session, item.question, version=requested, tracer=tracer
+            )
             result.version_used = decision.version
             result.stage_timings_ms = retrieval.timings_ms
 
@@ -376,13 +421,24 @@ def evaluate(
         # same bar recall sets; a model verdict replaces it in full mode.
         answered_correctly = result.in_context
         if mode == "full":
-            verdict: JudgeVerdict = judge_answer(
-                client,
-                question=item.question,
-                reference_answer=item.reference_answer,
-                answer=result.answer,
-                reference_is_abstention=not item.answerable,
-            )
+            # The judge is a stage of the *evaluation*, not the pipeline, but
+            # its calls cost the same and fail the same way.
+            with tracer.span("judge") as span:
+                verdict: JudgeVerdict = judge_answer(
+                    client.observed(tracer.record_llm_call),
+                    question=item.question,
+                    reference_answer=item.reference_answer,
+                    answer=result.answer,
+                    reference_is_abstention=not item.answerable,
+                )
+                span.output = {
+                    "score": verdict.score,
+                    "passed": verdict.passed,
+                    "deterministic": verdict.deterministic,
+                }
+                if verdict.score == 0:
+                    # 0 is the failure sentinel: the call raised or was unparseable.
+                    span.status = "degraded"
             result.judge_score = verdict.score
             result.judge_passed = verdict.passed
             result.judge_reason = verdict.reason
@@ -408,6 +464,7 @@ def evaluate(
         result.attribution_detail = attribution.detail
         result.latency_ms = (time.perf_counter() - item_started) * 1000
         result.cost_usd = tracker.cost_usd - cost_before
+        result.stages = tracer.stage_breakdown()
         results.append(result)
 
     # --- aggregate -------------------------------------------------------
@@ -458,6 +515,7 @@ def evaluate(
             "p95_ms": round(percentile(latencies, 95), 2),
             "total_seconds": round(duration, 2),
         },
+        "stages": summarize_stages(results),
         "cost": tracker.to_dict(),
         "items": [r.to_dict() for r in results],
     }
@@ -531,6 +589,18 @@ def print_summary(record: dict[str, Any]) -> None:
         print("  failures:")
         for failure, count in record["attribution"].items():
             print(f"    {failure:<22} {count}")
+
+    stages = record.get("stages") or {}
+    if stages:
+        print(f"{'-' * 64}")
+        print("  per stage:             p50      p95   calls  fell back")
+        for name, s in stages.items():
+            fell_back = s["degraded_items"] + s["error_items"]
+            flag = f"{fell_back}/{s['items']}" if fell_back else "-"
+            print(
+                f"    {name:<18} {s['p50_ms']:>7.0f}ms {s['p95_ms']:>7.0f}ms "
+                f"{s['llm_calls']:>6}  {flag}"
+            )
 
     cost = record["cost"]
     print(f"{'-' * 64}")

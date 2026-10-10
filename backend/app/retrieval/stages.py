@@ -84,8 +84,14 @@ def dense_search(
     *,
     version: str | None = None,
     k: int | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> list[Candidate]:
-    """Cosine similarity over the HNSW index, guaranteed to return `k` when `k` exist."""
+    """Cosine similarity over the HNSW index, guaranteed to return `k` when `k` exist.
+
+    `diagnostics`, when given, is filled with what the index scan returned and
+    whether the exact fallback ran: the post-filtering problem above was silent
+    once, and a trace is where a recurrence would show.
+    """
     limit = k or config.retrieval.dense.k
 
     # pgvector exposes distance; similarity is 1 - distance for cosine.
@@ -102,6 +108,8 @@ def dense_search(
     ef_search = max(int(config.retrieval.dense.ef_search), limit)
     session.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
     rows = session.execute(statement).all()
+    ann_rows = len(rows)
+    fell_back = False
 
     if len(rows) < limit:
         # The index scan came back short -- the filters rejected most of its
@@ -121,7 +129,18 @@ def dense_search(
                 ef_search=ef_search,
             )
             rows = exact
+            fell_back = True
 
+    if diagnostics is not None:
+        diagnostics.update(
+            {
+                "limit": limit,
+                "ef_search": ef_search,
+                "ann_rows": ann_rows,
+                "rows": len(rows),
+                "exact_fallback": fell_back,
+            }
+        )
     return [
         _to_candidate(row, "dense", 1.0 - float(row.distance), rank)
         for rank, row in enumerate(rows, start=1)

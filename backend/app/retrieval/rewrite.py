@@ -57,6 +57,11 @@ class RewriteResult:
     changed: bool
     cost_usd: float = 0.0
     cached: bool = False
+    # Why the original question was used instead of a rewrite, when it was.
+    # Both stages degrade to a safe default rather than fail the query, which
+    # makes a broken stage look exactly like one that chose to change nothing
+    # -- unless the reason is recorded.
+    fallback_reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -65,6 +70,7 @@ class RewriteResult:
             "changed": self.changed,
             "cost_usd": round(self.cost_usd, 6),
             "cached": self.cached,
+            "fallback_reason": self.fallback_reason,
         }
 
 
@@ -75,6 +81,8 @@ class DecompositionResult:
     subqueries: list[str] = field(default_factory=list)
     cost_usd: float = 0.0
     cached: bool = False
+    # Set when single-hop was a fallback, not the classifier's answer.
+    fallback_reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -83,6 +91,7 @@ class DecompositionResult:
             "subqueries": self.subqueries,
             "cost_usd": round(self.cost_usd, 6),
             "cached": self.cached,
+            "fallback_reason": self.fallback_reason,
         }
 
 
@@ -97,12 +106,21 @@ def rewrite_query(client: LLMClient, question: str, *, model: str | None = None)
         )
     except Exception as exc:  # noqa: BLE001 - a rewrite failure must not fail the query
         log.warning("rewrite.failed", error=str(exc))
-        return RewriteResult(question, question, changed=False)
+        return RewriteResult(
+            question, question, changed=False, fallback_reason=f"call failed: {type(exc).__name__}"
+        )
 
     rewritten = response.text.strip().splitlines()[0].strip() if response.text.strip() else ""
     # A rewrite that returns nothing, or an essay, is worse than no rewrite.
     if not rewritten or len(rewritten) > 4 * len(question) + 200:
-        return RewriteResult(question, question, False, response.cost_usd, response.cached)
+        return RewriteResult(
+            question,
+            question,
+            False,
+            response.cost_usd,
+            response.cached,
+            fallback_reason="empty response" if not rewritten else "response too long",
+        )
 
     return RewriteResult(
         original=question,
@@ -143,10 +161,22 @@ def decompose_query(
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("decompose.failed", error=str(exc))
-        return DecompositionResult(question, multi_hop=False)
+        return DecompositionResult(
+            question, multi_hop=False, fallback_reason=f"call failed: {type(exc).__name__}"
+        )
 
     parsed = _extract_json(response.text)
-    if not parsed or not parsed.get("multi_hop"):
+    if parsed is None:
+        log.warning("decompose.unparseable", text=response.text[:200])
+        return DecompositionResult(
+            question,
+            False,
+            [],
+            response.cost_usd,
+            response.cached,
+            fallback_reason="unparseable response",
+        )
+    if not parsed.get("multi_hop"):
         return DecompositionResult(question, False, [], response.cost_usd, response.cached)
 
     raw = parsed.get("subqueries") or []
@@ -157,7 +187,14 @@ def decompose_query(
 
     if len(subqueries) < 2:
         # "Multi-hop" with fewer than two parts is a classifier error.
-        return DecompositionResult(question, False, [], response.cost_usd, response.cached)
+        return DecompositionResult(
+            question,
+            False,
+            [],
+            response.cost_usd,
+            response.cached,
+            fallback_reason="multi_hop with fewer than two subqueries",
+        )
 
     return DecompositionResult(
         original=question,

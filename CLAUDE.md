@@ -218,6 +218,11 @@ Each of these was a real bug that produced plausible, wrong numbers. See the
   Alembic will propose dropping.
 - Two DB engines share one URL: async for the API request path, sync for
   ingestion/evals/CLIs. Both are psycopg 3.
+- **Model calls are traced by the client, not by stages.** A stage gets an
+  observed client (`llm.observed(tracer.record_llm_call)`); never build an
+  `llm` span by hand. Open stage spans only from the query thread: the span
+  stack is not thread-safe, and pool threads (verification) only record calls.
+  A stage that returns a fallback sets `span.status = "degraded"`, and says why.
 - Tests that need Postgres are marked `@pytest.mark.integration`;
   `make test-unit` skips them. They skip automatically when no database is
   reachable, and run in CI against a service container.

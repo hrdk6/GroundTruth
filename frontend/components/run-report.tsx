@@ -246,6 +246,19 @@ export function RunReport({
 
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Why an answer was withheld, said truthfully. These used to be one sentence,
+ * "the evidence did not support one", which was false whenever retrieval found
+ * nothing or the verifier never answered. An API older than `abstain_reason`
+ * (or a recorded run) falls back to that sentence.
+ */
+const WITHHELD_BECAUSE: Record<string, string> = {
+  no_excerpts: "nothing relevant was found in the indexed docs.",
+  model_declined: "the excerpts found do not cover this question.",
+  unsupported: "the evidence did not support one.",
+  unverifiable: "the verifier did not respond, so the answer could not be checked.",
+};
+
 function Summary({
   counts,
   result,
@@ -275,7 +288,9 @@ function Summary({
   if (abstained) {
     return (
       <div className="mt-5 flex flex-wrap items-baseline gap-x-6 gap-y-2 text-[16px]">
-        <span className="font-semibold text-ink">No answer given: the evidence did not support one.</span>
+        <span className="font-semibold text-ink">
+          No answer given: {WITHHELD_BECAUSE[result.abstain_reason ?? ""] ?? WITHHELD_BECAUSE.unsupported}
+        </span>
         {where}
       </div>
     );

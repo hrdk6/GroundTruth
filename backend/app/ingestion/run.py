@@ -66,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"chunks:    {stats.chunks_written} written, {stats.chunks_embedded} embedded")
     print(f"duration:  {stats.duration_seconds:.1f}s")
+    if stats.stage_seconds:
+        stages = sorted(stats.stage_seconds.items(), key=lambda kv: -kv[1])
+        print("stages:    " + ", ".join(f"{name} {seconds:.1f}s" for name, seconds in stages))
+    if stats.documents_unparseable:
+        print(f"skipped:   {stats.documents_unparseable} file(s) unreadable or empty after parsing")
 
     if stats.documents_unchanged and not stats.chunks_embedded:
         print("\nNothing changed: no re-embedding was needed.")

@@ -32,8 +32,13 @@ export interface Verification {
   checked?: number;
   skipped_non_factual?: number;
   unsupported_count?: number;
+  /** Checks that returned no verdict (call failed, unparseable), scored unsupported. */
+  verifier_errors?: number;
   sentences?: SentenceVerification[];
 }
+
+/** Why an answer was withheld. Absent from APIs older than the field. */
+export type AbstainReason = "no_excerpts" | "model_declined" | "unsupported" | "unverifiable";
 
 /**
  * One sentence of the answer, split by the server with the same function the
@@ -71,6 +76,7 @@ export interface QueryResponse {
   conflict_note: string;
   verification: Verification;
   abstained: boolean;
+  abstain_reason?: AbstainReason | null;
   regenerated: boolean;
   config_name: string;
   trace_id: string | null;
@@ -90,6 +96,44 @@ export interface TraceSummary {
   started_at: string;
   span_count: number;
   feedback: boolean | null;
+  abstain_reason?: AbstainReason | null;
+  /** Stages that returned a fallback: the query succeeded, but not as designed. */
+  degraded_stages?: string[];
+}
+
+/** One stage across every trace in the window. */
+export interface StageStats {
+  name: string;
+  runs: number;
+  traces: number;
+  errors: number;
+  degraded: number;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+  llm_calls: number;
+  llm_cached: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface TraceStats {
+  since: string;
+  config_name: string | null;
+  totals: {
+    traces: number;
+    errors: number;
+    abstained: number;
+    abstain_reasons: Record<string, number>;
+    degraded: number;
+    p50_ms: number;
+    p95_ms: number;
+    cost_usd: number;
+    helpful: number;
+    unhelpful: number;
+  };
+  stages: StageStats[];
 }
 
 export interface Span {
@@ -266,6 +310,8 @@ export const api = {
   traces: (limit = 50) => request<TraceSummary[]>(`/traces?limit=${limit}`),
 
   trace: (id: string) => request<TraceDetail>(`/traces/${id}`),
+
+  traceStats: (hours = 168) => request<TraceStats>(`/traces/stats?hours=${hours}`),
 
   experiments: (includeSuperseded = false) =>
     request<ExperimentSummary[]>(

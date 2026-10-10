@@ -18,7 +18,10 @@ Order, and why:
    user's actual intent.
 
 Every stage records its output and timing so a trace can show exactly where a
-gold chunk was lost.
+gold chunk was lost, plus the diagnostics that say *why*: whether the dense
+index came back short and fell back to an exact scan, which lexical queries
+matched nothing, how much the two legs agreed, and how far reranking moved
+the context.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -58,6 +62,24 @@ def _rerank_stage(candidates: list[Candidate], stage: str) -> list[Candidate]:
     for position, candidate in enumerate(candidates, start=1):
         candidate.ranks[stage] = position
     return candidates
+
+
+def _leg_provenance(candidates: list[Candidate], k: int) -> dict[str, int]:
+    """Which leg found each of the top `k` fused chunks.
+
+    Answers "is the lexical leg contributing anything?" per query, which a
+    recall number averaged over a golden set cannot.
+    """
+    both = dense_only = lexical_only = 0
+    for candidate in candidates[:k]:
+        in_dense, in_lexical = "dense" in candidate.ranks, "lexical" in candidate.ranks
+        if in_dense and in_lexical:
+            both += 1
+        elif in_dense:
+            dense_only += 1
+        elif in_lexical:
+            lexical_only += 1
+    return {"both": both, "dense_only": dense_only, "lexical_only": lexical_only}
 
 
 class Retriever:
@@ -100,16 +122,21 @@ class Retriever:
         llm = llm_client
         if llm is None and self._needs_llm:
             llm = self.llm
+        if llm is not None and tracer is not None:
+            # Each model call becomes a child span of the stage making it.
+            llm = llm.observed(tracer.record_llm_call)
         timings: dict[str, float] = {}
         stage_outputs: dict[str, list[Candidate]] = {}
         retrieval = self.config.retrieval
 
         @contextmanager
-        def timed(name: str) -> Iterator[SpanRecord | None]:
+        def timed(name: str, **inputs: Any) -> Iterator[SpanRecord | None]:
             """Time a stage, and record it as a span when tracing is on.
 
             Yields the span (or None) so a stage with a non-list result -- the
             version decision, the sub-queries, the rewrite -- can record it.
+            `inputs` is what the stage actually received, which for a rewrite
+            of a sub-query is that sub-query, not the user's question.
             """
             started = time.perf_counter()
             # Accumulate: rewriting runs once per sub-query, and overwriting
@@ -121,7 +148,7 @@ class Retriever:
                     timings[name] = timings.get(name, 0.0) + (time.perf_counter() - started) * 1000
                 return
 
-            with tracer.span(name, query=question, version=version) as span:
+            with tracer.span(name, **(inputs or {"query": question, "version": version})) as span:
                 try:
                     yield span
                 finally:
@@ -147,12 +174,16 @@ class Retriever:
             )
             if span is not None:
                 span.output = {**decision.to_dict(), "available": available}
+                if not available:
+                    # Nothing indexed for this chunk set: every later stage
+                    # will come back empty, and this is the stage that knows.
+                    span.status = "degraded"
 
         # --- 2. decomposition ---------------------------------------------
         subqueries: list[str] = []
         if retrieval.decomposition.enabled:
             assert llm is not None
-            with timed("decomposition") as span:
+            with timed("decomposition", query=question) as span:
                 decomposition = decompose_query(
                     llm,
                     question,
@@ -161,6 +192,8 @@ class Retriever:
                 )
                 if span is not None:
                     span.output = decomposition.to_dict()
+                    if decomposition.fallback_reason:
+                        span.status = "degraded"
             subqueries = decomposition.subqueries
 
         search_queries = subqueries or [question]
@@ -173,10 +206,12 @@ class Retriever:
         for query in search_queries:
             if retrieval.query_rewrite.enabled:
                 assert llm is not None
-                with timed("query_rewrite") as span:
+                with timed("query_rewrite", query=query) as span:
                     rewrite = rewrite_query(llm, query, model=retrieval.query_rewrite.model)
                     if span is not None:
                         span.output = rewrite.to_dict()
+                        if rewrite.fallback_reason:
+                            span.status = "degraded"
                 dense_queries.append(rewrite.rewritten)
                 if retrieval.query_rewrite.keep_original_for_lexical:
                     # Both forms go to lexical search: the rewrite adds likely
@@ -194,11 +229,22 @@ class Retriever:
         result_sets: list[list[Candidate]] = []
 
         if retrieval.dense.enabled:
-            with timed("dense"):
+            with timed("dense", queries=dense_queries, version=decision.version) as span:
+                embed_started = time.perf_counter()
                 vectors = self.embedder.embed_queries(dense_queries)
+                embed_ms = (time.perf_counter() - embed_started) * 1000
                 dense_results = []
+                diagnostics: list[dict[str, Any]] = []
                 for query, vector in zip(dense_queries, vectors, strict=True):
-                    hits = dense_search(session, vector, self.config, version=decision.version)
+                    diagnostic: dict[str, Any] = {}
+                    hits = dense_search(
+                        session,
+                        vector,
+                        self.config,
+                        version=decision.version,
+                        diagnostics=diagnostic,
+                    )
+                    diagnostics.append(diagnostic)
                     if len(dense_queries) > 1:
                         for hit in hits:
                             hit.origin = query
@@ -210,11 +256,23 @@ class Retriever:
                 )
                 stage_outputs["dense"] = dense_merged
                 result_sets.append(dense_merged)
+                if span is not None:
+                    span.attributes.update(
+                        {
+                            "embed_ms": round(embed_ms, 2),
+                            "exact_fallbacks": sum(1 for d in diagnostics if d["exact_fallback"]),
+                            # Fewer rows than asked for even after the exact
+                            # scan: the filtered chunk set really is that small.
+                            "short_queries": sum(1 for d in diagnostics if d["rows"] < d["limit"]),
+                            "per_query": diagnostics,
+                        }
+                    )
 
         if retrieval.lexical.enabled:
-            with timed("lexical"):
+            unique_lexical = list(dict.fromkeys(lexical_queries))  # dedupe, keep order
+            with timed("lexical", queries=unique_lexical, version=decision.version) as span:
                 lexical_results = []
-                for query in dict.fromkeys(lexical_queries):  # dedupe, keep order
+                for query in unique_lexical:
                     hits = lexical_search(session, query, self.config, version=decision.version)
                     if len(lexical_queries) > 1:
                         for hit in hits:
@@ -227,12 +285,32 @@ class Retriever:
                 )
                 stage_outputs["lexical"] = lexical_merged
                 result_sets.append(lexical_merged)
+                if span is not None:
+                    span.attributes.update(
+                        {
+                            "ranking": retrieval.lexical.ranking,
+                            "match": retrieval.lexical.match,
+                            "hits_per_query": [len(hits) for hits in lexical_results],
+                            # An all-terms match found nothing for 20 of 32
+                            # golden questions before anyone looked.
+                            "empty_queries": sum(1 for hits in lexical_results if not hits),
+                        }
+                    )
 
         # --- 5. fusion --------------------------------------------------------
         if retrieval.fusion.enabled and len(result_sets) > 1:
-            with timed("fusion"):
+            with timed("fusion", rrf_k=retrieval.fusion.rrf_k) as span:
                 candidates = reciprocal_rank_fusion(result_sets, rrf_k=retrieval.fusion.rrf_k)
                 stage_outputs["fusion"] = candidates
+                if span is not None:
+                    dense_ids = {c.chunk_id for c in stage_outputs.get("dense", [])}
+                    lexical_ids = {c.chunk_id for c in stage_outputs.get("lexical", [])}
+                    span.attributes.update(
+                        {
+                            "overlap": len(dense_ids & lexical_ids),
+                            "context_from": _leg_provenance(candidates, retrieval.k_final),
+                        }
+                    )
         elif len(result_sets) > 1:
             candidates = merge_unique(result_sets)
         elif result_sets:
@@ -242,11 +320,17 @@ class Retriever:
 
         # --- 6. rerank ---------------------------------------------------------
         if retrieval.rerank.enabled and candidates:
-            with timed("rerank"):
+            with timed("rerank", query=question, model=retrieval.rerank.model) as span:
+                before = {c.chunk_id for c in candidates[: retrieval.k_final]}
                 reranker = get_reranker(retrieval.rerank.model, retrieval.rerank.batch_size)
                 # Against the original question, deliberately: see module docstring.
                 candidates = reranker.rerank(question, candidates)
                 stage_outputs["rerank"] = candidates
+                if span is not None:
+                    after = {c.chunk_id for c in candidates[: retrieval.k_final]}
+                    span.attributes.update(
+                        {"pairs": len(candidates), "context_replaced": len(after - before)}
+                    )
 
         # The context is the top k_final; the full ordering is kept for ranking
         # metrics. See `RetrievalResult` for why the two must not be conflated.

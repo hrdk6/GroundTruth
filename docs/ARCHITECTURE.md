@@ -467,3 +467,43 @@ code and paths; Newsreader and Schibsted Grotesk are well-drawn text faces but
 not designed for low vision. The hero pushes the recorded run below the first
 viewport on most screens, so asking now scrolls to the results.
 
+
+### D23 — Model calls are spans; fallbacks are a status of their own
+
+**Context.** Every stage had a span, but a span recorded only what the stage
+returned. Three failure modes were therefore invisible. A model call that
+retried four times showed up only as unexplained latency. A rewrite or
+decomposition whose call failed returned the original question, which looked
+exactly like a stage that chose to change nothing. And a verifier call that
+failed scored its sentence `unsupported`, so a provider outage looked like an
+answer full of hallucinations, and the abstention it caused was blamed on the
+model. Across traces there was no view at all: a stage whose tail latency
+doubled could only be found one trace at a time.
+
+**Choice.** The `LLMClient` takes an observer (`observed(...)`). It reports every
+call (cache hit, success, or failure after retries) with tokens, cost,
+attempts and stop reason. The tracer records each call as an `llm` child span
+of the stage that made it, and rolls their totals up onto the stage. A stage
+that fell back is marked `degraded`, distinct from `error`, and says why
+(`fallback_reason`, `verifier_errors`). Every abstention records a reason:
+`no_excerpts`, `model_declined`, `unsupported`, or `unverifiable`. The last
+means the shortfall was entirely checks that never returned a verdict.
+`GET /traces/stats` aggregates per stage in SQL (p50/p95, error and fallback
+rates, calls, cost). Eval items run under an in-memory tracer, so every
+experiment record carries the same per-stage block. Log lines carry their
+trace id. Traces expire after `GT_TRACE_RETENTION_DAYS` (30).
+
+**Why not OpenTelemetry, Phoenix or Ragas.** The tracer already writes an
+OTel-shaped tree to the Postgres the app uses, and the dashboard reads it from
+there. An exporter would add a collector to deploy and a second place for the
+truth to live, for a single-process app. Phoenix's and Ragas's evaluators are
+LLM judges. Here the judge is already the model it judges (L7), so they would
+add opinions without adding evidence. An OTLP exporter remains a small
+adapter over `SpanRecord` if the app ever runs as more than one process.
+
+**Trade-off.** A full trace now holds one span per model call. With
+verification that is one per factual sentence, around ten more rows per query,
+each with a 500-character response preview. Retention bounds the total. The
+tracer's stage stack is single-threaded by design: model calls from worker
+threads take their parent from it under a lock but never push onto it, so a
+stage must not be opened from a pool thread.

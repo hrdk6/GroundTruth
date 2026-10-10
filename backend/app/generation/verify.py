@@ -21,10 +21,17 @@ The per-sentence checks are independent, so they are issued concurrently
 its own prompt, so concurrency changes the latency and nothing else: the
 verdicts, their order, and the cache keys are exactly what a sequential run
 produces.
+
+A check that fails -- the call raised, or the response could not be parsed --
+is scored `unsupported`: an unverified claim is not a supported one. But it is
+*counted* separately (`verifier_errors`), because a provider outage otherwise
+reads exactly like an answer full of hallucinations, and the abstention it
+causes gets blamed on the model.
 """
 
 from __future__ import annotations
 
+import contextvars
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -70,6 +77,14 @@ _NON_FACTUAL = re.compile(
 )
 _MIN_FACTUAL_WORDS = 4
 
+# Reasons that mean "no verdict was obtained", as opposed to a verdict of
+# unsupported. Kept as constants because the report counts them.
+REASON_CALL_FAILED = "verifier call failed"
+REASON_UNPARSEABLE = "could not parse verifier response"
+_ERROR_REASONS = frozenset({REASON_CALL_FAILED, REASON_UNPARSEABLE})
+
+_WEIGHT = {"supported": 1.0, "partially": 0.5, "unsupported": 0.0}
+
 
 @dataclass
 class SentenceVerification:
@@ -93,6 +108,25 @@ class VerificationReport:
     @property
     def unsupported(self) -> list[SentenceVerification]:
         return [s for s in self.sentences if s.verdict == "unsupported"]
+
+    @property
+    def verifier_errors(self) -> int:
+        """Checks that produced no verdict at all, scored as unsupported."""
+        return sum(1 for s in self.sentences if s.reason in _ERROR_REASONS)
+
+    @property
+    def support_if_errors_passed(self) -> float:
+        """Support fraction had every failed check come back `supported`.
+
+        If this clears the threshold and `support_fraction` does not, the
+        verifier's failures -- not the answer -- decided the outcome.
+        """
+        if not self.checked:
+            return self.support_fraction
+        total = sum(
+            1.0 if s.reason in _ERROR_REASONS else _WEIGHT[s.verdict] for s in self.sentences
+        )
+        return total / self.checked
 
     @property
     def citation_precision(self) -> float | None:
@@ -120,6 +154,7 @@ class VerificationReport:
             "checked": self.checked,
             "skipped_non_factual": self.skipped_non_factual,
             "unsupported_count": len(self.unsupported),
+            "verifier_errors": self.verifier_errors,
             "cost_usd": round(self.cost_usd, 6),
             "sentences": [s.to_dict() for s in self.sentences],
         }
@@ -190,7 +225,7 @@ def _parse_verdict(text: str) -> tuple[Verdict, str]:
         if verdict in lowered:
             return verdict, "parsed from prose"  # type: ignore[return-value]
     # An unparseable judgement is treated as a failure to verify, not a pass.
-    return "unsupported", "could not parse verifier response"
+    return "unsupported", REASON_UNPARSEABLE
 
 
 def _check_claim(
@@ -206,7 +241,7 @@ def _check_claim(
         )
     except Exception as exc:  # noqa: BLE001 - one failed check must not fail the answer
         log.warning("verify.call_failed", error=str(exc))
-        return SentenceVerification(sentence, citations, "unsupported", "verifier call failed"), 0.0
+        return SentenceVerification(sentence, citations, "unsupported", REASON_CALL_FAILED), 0.0
 
     verdict, reason = _parse_verdict(response.text)
     return SentenceVerification(sentence, citations, verdict, reason), response.cost_usd
@@ -259,8 +294,18 @@ def verify_answer(
     if len(checks) <= 1 or workers == 1:
         outcomes = [_check_claim(client, check, model) for check in checks]
     else:
+        # A pool thread starts with an empty context, so a log line from a
+        # check would lose the request's bound trace id. Each task runs in its
+        # own copy of the caller's (one Context cannot be entered by two
+        # threads at once).
+        contexts = [contextvars.copy_context() for _ in checks]
         with ThreadPoolExecutor(max_workers=min(workers, len(checks))) as pool:
-            outcomes = list(pool.map(lambda check: _check_claim(client, check, model), checks))
+            outcomes = list(
+                pool.map(
+                    lambda pair: pair[0].run(_check_claim, client, pair[1], model),
+                    zip(contexts, checks, strict=True),
+                )
+            )
 
     for slot in slots:
         if isinstance(slot, int):
@@ -274,8 +319,7 @@ def verify_answer(
     if report.checked:
         # "partially" counts as half: it is neither a clean pass nor a
         # hallucination, and collapsing it either way distorts the metric.
-        weight = {"supported": 1.0, "partially": 0.5, "unsupported": 0.0}
-        report.support_fraction = sum(weight[s.verdict] for s in report.sentences) / report.checked
+        report.support_fraction = sum(_WEIGHT[s.verdict] for s in report.sentences) / report.checked
     return report
 
 

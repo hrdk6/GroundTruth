@@ -37,6 +37,8 @@ Two properties of *how* the work is done, both learned the hard way:
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -68,10 +70,27 @@ class IngestionStats:
     documents_unchanged: int = 0
     documents_deleted: int = 0
     documents_restored: int = 0
+    # Files `parse_file` rejected: unreadable, or no text once markup is gone.
+    documents_unparseable: int = 0
     chunks_written: int = 0
     chunks_embedded: int = 0
     duration_seconds: float = 0.0
     versions: list[str] = field(default_factory=list)
+    # Seconds per stage: fetch, parse, chunk, embed, write, tombstone,
+    # mark_latest. Embedding was assumed to dominate a full-corpus run; this
+    # is what says so, per run.
+    stage_seconds: dict[str, float] = field(default_factory=dict)
+
+    def add_time(self, stage: str, seconds: float) -> None:
+        self.stage_seconds[stage] = round(self.stage_seconds.get(stage, 0.0) + seconds, 3)
+
+    @contextmanager
+    def timed(self, stage: str) -> Iterator[None]:
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.add_time(stage, time.perf_counter() - started)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -141,12 +160,13 @@ class _ChunkWriter:
         # a document changes, so a positional diff would be wrong more often
         # than right. The delete shares the flush's transaction, so it is
         # never committed without its replacement.
-        self.session.execute(
-            delete(Chunk).where(
-                Chunk.document_id == document.id,
-                Chunk.chunker_name == self.config.chunker_name,
+        with self.stats.timed("write"):
+            self.session.execute(
+                delete(Chunk).where(
+                    Chunk.document_id == document.id,
+                    Chunk.chunker_name == self.config.chunker_name,
+                )
             )
-        )
         if not pieces:
             return
         self._pending.append((document, pieces))
@@ -162,8 +182,12 @@ class _ChunkWriter:
         texts = [
             p.embed_text(prepend_heading=prepend) for _, pieces in self._pending for p in pieces
         ]
+        embed_started = time.perf_counter()
         vectors = iter(self.embedder.embed_documents(texts))
+        embed_seconds = time.perf_counter() - embed_started
+        self.stats.add_time("embed", embed_seconds)
 
+        write_started = time.perf_counter()
         for document, pieces in self._pending:
             for piece in pieces:
                 self.session.add(
@@ -190,7 +214,14 @@ class _ChunkWriter:
         self.stats.chunks_embedded += len(texts)
         self.session.flush()
         self.session.commit()  # checkpoint: see the module docstring
-        log.info("ingest.checkpoint", chunks=len(texts), documents=len(self._pending))
+        self.stats.add_time("write", time.perf_counter() - write_started)
+        log.info(
+            "ingest.checkpoint",
+            chunks=len(texts),
+            documents=len(self._pending),
+            embed_seconds=round(embed_seconds, 2),
+            chunks_per_second=round(len(texts) / embed_seconds, 1) if embed_seconds else None,
+        )
         self._pending, self._pending_chunks = [], 0
 
 
@@ -280,7 +311,8 @@ def ingest(
     writer = _ChunkWriter(session, config, embedder, stats)
 
     if fetch and root is None:
-        fetch_versions(target_versions)
+        with stats.timed("fetch"):
+            fetch_versions(target_versions)
 
     for version in target_versions:
         version_root = (root / version) if root else (_default_root() / version)
@@ -292,8 +324,10 @@ def ingest(
         seen: set[str] = set()
 
         for path in iter_markdown(version_root):
-            parsed = parse_file(path, root=version_root, version=version)
+            with stats.timed("parse"):
+                parsed = parse_file(path, root=version_root, version=version)
             if parsed is None:
+                stats.documents_unparseable += 1
                 continue
             if include and not any(parsed.source_path.startswith(p) for p in include):
                 continue
@@ -320,8 +354,11 @@ def ingest(
             # New, changed, or this chunker's chunks were cut from other
             # content -- including a page another chunker already refreshed,
             # and a restored page whose content also changed.
-            document = _upsert_document(session, parsed, record[0] if record else None)
-            writer.replace(document, chunker.chunk(parsed.text, title=document.title))
+            with stats.timed("write"):
+                document = _upsert_document(session, parsed, record[0] if record else None)
+            with stats.timed("chunk"):
+                pieces = chunker.chunk(parsed.text, title=document.title)
+            writer.replace(document, pieces)
             if record:
                 stats.documents_updated += 1
             else:
@@ -340,17 +377,19 @@ def ingest(
         )
         missing = candidates - seen
         if missing:
-            result: Any = session.execute(
-                update(Document)
-                .where(Document.version == version, Document.source_path.in_(missing))
-                .where(Document.deleted_at.is_(None))
-                .values(deleted_at=func.now())
-            )
+            with stats.timed("tombstone"):
+                result: Any = session.execute(
+                    update(Document)
+                    .where(Document.version == version, Document.source_path.in_(missing))
+                    .where(Document.deleted_at.is_(None))
+                    .values(deleted_at=func.now())
+                )
             stats.documents_deleted += result.rowcount or 0
 
         session.flush()
 
-    _mark_latest(session)
+    with stats.timed("mark_latest"):
+        _mark_latest(session)
     stats.duration_seconds = time.perf_counter() - started
 
     session.add(
@@ -370,6 +409,8 @@ def ingest(
                 "embedding_model": config.embedding.model,
                 "include": include or [],
                 "documents_restored": stats.documents_restored,
+                "documents_unparseable": stats.documents_unparseable,
+                "stage_seconds": stats.stage_seconds,
             },
         )
     )

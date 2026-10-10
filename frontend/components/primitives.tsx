@@ -210,6 +210,14 @@ export function Spinner({ label }: { label: string }) {
   );
 }
 
+/** Why an answer was withheld, in words a reader can act on. */
+export const ABSTAIN_LABEL: Record<string, string> = {
+  no_excerpts: "Nothing was retrieved",
+  model_declined: "The model declined",
+  unsupported: "Failed verification",
+  unverifiable: "The verifier was unavailable",
+};
+
 // A no-break space: "2.72" and "s" on separate lines read as two values.
 const NBSP = String.fromCharCode(160);
 

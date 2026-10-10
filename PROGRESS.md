@@ -97,6 +97,17 @@ Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
 - [x] Span per stage including verification, with outputs for version,
       decomposition and rewrite; failed queries leave a trace (audit fix)
 - [x] `GET /traces` in one query; `POST /feedback` validates the trace
+- [x] **Per-component observability (D23).** Every model call is a child span
+      of the stage that made it (tokens, cost, cache, retries, truncation),
+      rolled up onto the stage. Fallbacks are `degraded`, not silent: a failed
+      rewrite or decomposition, a verifier that returned no verdict, the dense
+      leg's exact-scan fallback, empty lexical queries. Every abstention says
+      why (`no_excerpts` / `model_declined` / `unsupported` / `unverifiable`)
+- [x] `GET /traces/stats`: per stage p50/p95, error and fallback rates, model
+      calls and cost; shown above the trace list. Log lines carry the trace id
+- [x] Eval records carry a per-stage block; ingestion runs record seconds per
+      stage. Tracing changes no recorded result (EXPERIMENTS.md, replayed)
+- [x] Traces expire after `GT_TRACE_RETENTION_DAYS` (30); feedback is kept
 
 ## Phase 6 — Frontend  `[x]`
 
