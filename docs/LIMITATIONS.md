@@ -337,8 +337,8 @@ With bge-small resident the backend holds ~510 MB before it serves a request
 (docs/DEPLOY.md), so a 512 MB instance is not enough for it. The Ask page's
 pipeline dropdown lists every config, including the two that rerank:
 choosing one loads bge-reranker-base on first use and takes the process to
-~1.6 GB, and puts CPU reranking in the query path (retrieval p50 7.8 s on dev,
-9.6 s on test; EXPERIMENTS.md). `GT_SERVED_CONFIGS` now lists what
+~1.6 GB, and puts CPU reranking in the query path (retrieval p50 6.6 s on dev,
+6.7 s on test; EXPERIMENTS.md). `GT_SERVED_CONFIGS` now lists what
 `/query` will run, and the production Compose file leaves the rerank configs
 out, so a visitor can no longer pick one. The memory floor is unchanged.
 

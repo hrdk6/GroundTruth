@@ -48,3 +48,29 @@ what those commits produced.
 The replays needed `backend/app/models/` copied in: those commits predate the
 fix that stopped `.gitignore` from excluding it, which is itself one of the
 audit's findings.
+
+## Superseded by the second pass
+
+The sixteen records stamped `20260923T14*` to `20260923T17*` (every
+`golden_v1` run, plus the two `fixture_golden` runs) were the post-audit
+results until 10 Oct 2026. Replaying them, to show that the new per-stage
+tracing changes no result, found two defects in the code that produced them:
+
+1. **nDCG@10 counted every chunk containing a gold quote**, while its ideal
+   ranking assumed one relevant chunk per piece of gold. Per-item scores
+   reached 3.31, and every dev nDCG@10 here is inflated, by up to 0.23.
+2. **The `ts_rank_cd` lexical query had no tie-breaker**, so `hybrid` and
+   `hybrid_rerank` depended on the order Postgres happened to return tied
+   rows. Two runs of the same code gave different rankings, and `hybrid`'s
+   test recall@5 of 0.600 here is 0.700 with ties broken by chunk id.
+
+Recall and MRR are unaffected everywhere else, as is every generation metric.
+The replacements were recorded from a clean tree at `33ace42`, one directory
+up. The two `full` records were replayed with every model call served from the
+LLM cache (77 of 77 and 59 of 59), so their answers and verdicts are identical.
+The two fixture records reproduce exactly. They are superseded only because
+the code that produced them had the nDCG defect.
+
+`scripts/experiment_tables.py` still selects the *pre-audit* runs by time
+(`PRE_AUDIT_BEFORE`), so these do not stand in for them in the audit's
+before/after tables.

@@ -8,13 +8,14 @@
 # test scored items) -- the corrected dense-only baseline is as good as
 # anything. hybrid_bm25 is chosen on the evidence that does separate: any-term
 # lexical needs IDF (hybrid, which lacks it, lost the fixture's table_or_code
-# item and scored lowest on test), and structure-aware chunks keep YAML and
+# item, and dropped a ConfigMap question's gold chunk from rank 1 to 8 on
+# dev), and structure-aware chunks keep YAML and
 # tables whole in the context the model reads -- a generation-side benefit
 # retrieval recall does not measure. Both are hypotheses a larger golden set
 # should test. EXPERIMENTS.md has the paired comparisons.
 #
 # **Reranking is deliberately OFF**: hybrid_rerank was within noise of hybrid
-# on both splits while multiplying retrieval latency ~100x (p50 ~8s on CPU).
+# on both splits while multiplying retrieval latency ~90x (p50 ~6.6s on CPU).
 #
 # On top of that retrieval, this adds the Phase 4 generation work: claim
 # verification with regenerate-or-abstain, cross-version conflict notes, and

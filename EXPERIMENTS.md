@@ -22,6 +22,11 @@ table is generated from the same files by `scripts/generate_results_table.py`.
 > That is the result, and the harness is now built to make the next one
 > harder to get wrong: every run audits its own gold, reports intervals, and
 > refuses to publish a comparison it cannot pair.
+>
+> A second pass found two more defects. nDCG counted duplicate chunks, which
+> inflated every dev nDCG by up to 0.23. A lexical query had no tie-breaker, so
+> `hybrid` could not be reproduced. Neither changes the verdict
+> ([the second pass](#the-second-pass)).
 
 ## Setup
 
@@ -75,49 +80,72 @@ the documents; they were not in the chunks. `evals/integrity.py` now audits
 every run at the level that is actually scored, records
 `integrity.recall_ceiling`, and the CI gate fails when it is below 1.0.
 
+### The second pass
+
+Adding per-stage tracing (ARCHITECTURE D23) meant replaying every record to
+show that tracing changes no result. The replays found two more defects of
+the same kind. Both are fixed and regression-tested, every record was
+re-recorded from one clean commit (`33ace42`), and the replaced files are in
+`experiments/superseded/`.
+
+| Finding | Effect on the published numbers | How it surfaced |
+|---|---|---|
+| **nDCG counted every chunk that contained a gold quote** as a relevant hit, while its ideal ranking assumed one per piece of gold. Overlapping `fixed` windows, and a section split into several structure-aware chunks, all matched the same quote | Per-item nDCG@10 up to **3.31** against a ceiling of 1.0. Every dev nDCG@10 was inflated: `hybrid_bm25` 0.850 → **0.624**, `hybrid_all_terms` 0.842 → 0.640, `full` 0.808 → 0.692. The test split had no item above 1 | Scanning the records for a per-item score above 1 |
+| **The `ts_rank_cd` lexical query had no tie-breaker.** Tied scores came back in whatever order the plan produced | The `hybrid` record could not be reproduced from its SHA. Two runs of the same code ranked four test items differently, and test recall@5 is **0.700**, not the recorded 0.600. `hybrid_rerank` moved one unanswerable item, with no metric change | Replaying `hybrid` twice on the old code |
+
+Neither changes the verdict: no retrieval variant was distinguishable from
+noise before, and none is now. Apart from `hybrid`'s, every recall and MRR
+figure is unchanged, and so is every generation figure. With nDCG computed correctly, the dev configs sit within 0.06 of
+each other (0.578 to 0.640) instead of spanning 0.713 to 0.850. The spread was
+mostly a count of how many duplicate chunks each config retrieved. The fixture
+records reproduce exactly, so the CI gate's floors still hold.
+
 #### What the audit changed, config by config (recall@5)
 
 | Config | dev before | dev after | test before | test after |
 |---|---|---|---|---|
 | `baseline` | 0.286 | 0.857 | 0.100 | 0.700 |
 | `structure_aware` | 0.786 | 0.786 | 0.700 | 0.700 |
-| `hybrid` | 0.786 | 0.714 | 0.700 | 0.600 |
+| `hybrid` | 0.786 | 0.714 | 0.700 | 0.700 |
 | `hybrid_rerank` | 0.714 | 0.714 | 0.800 | 0.700 |
 
 `structure_aware` did not move at all: its chunks were 98.6% verbatim already.
-Its "win" was entirely the baseline being mismeasured. `hybrid` moved because
-its lexical leg changed semantics (next section); its old behaviour is
-preserved as `hybrid_all_terms`, which reproduces the old numbers exactly.
+Its "win" was entirely the baseline being mismeasured. `hybrid` moved on dev
+because its lexical leg changed semantics (next section); its old behaviour is
+preserved as `hybrid_all_terms`, which reproduces the old numbers exactly. The
+"after" column is the current record. `hybrid`'s test figure was first
+recorded as 0.600, and that was a coin flip on tied lexical scores. Broken
+deterministically it is 0.700 ([the second pass](#the-second-pass), below).
 
 ---
 
 ## Retrieval, re-measured
 
-Every config, both splits, from one commit and a clean tree. Retrieval-only
-mode: no model calls, $0.00. Recall@k, MRR@10 and nDCG@10 are over the full
+Every config, both splits, from one commit and a clean tree (`33ace42`, after
+the second pass). Retrieval-only mode: no model calls, $0.00. Recall@k, MRR@10 and nDCG@10 are over the full
 ranked list; `n` counts items with gold evidence.
 
 #### dev
 
 | Config | n | Recall@1 | Recall@5 (95% CI) | Recall@10 | MRR@10 | nDCG@10 | p50 | Failures |
 |---|---|---|---|---|---|---|---|---|
-| `baseline` | 14 | 0.357 | 0.857 [0.64, 1.00] | 0.857 | 0.538 | 0.713 | 20ms | ranking_miss 1, retrieval_miss 1 |
-| `structure_aware` | 14 | 0.286 | 0.786 [0.57, 1.00] | 0.786 | 0.500 | 0.781 | 20ms | retrieval_miss 3 |
-| `hybrid_all_terms` | 14 | 0.429 | 0.786 [0.57, 1.00] | 0.786 | 0.583 | 0.842 | 24ms | retrieval_miss 3 |
-| `hybrid` | 14 | 0.429 | 0.714 [0.50, 0.93] | 0.786 | 0.558 | 0.724 | 71ms | retrieval_miss 3, ranking_miss 1 |
-| `hybrid_bm25` | 14 | 0.429 | 0.714 [0.50, 0.93] | 0.786 | 0.572 | 0.850 | 112ms | ranking_miss 2, retrieval_miss 2 |
-| `hybrid_rerank` | 14 | 0.286 | 0.714 [0.50, 0.93] | 0.786 | 0.537 | 0.759 | 7,806ms | retrieval_miss 3, ranking_miss 1 |
+| `baseline` | 14 | 0.357 | 0.857 [0.64, 1.00] | 0.857 | 0.538 | 0.616 | 24ms | ranking_miss 1, retrieval_miss 1 |
+| `structure_aware` | 14 | 0.286 | 0.786 [0.57, 1.00] | 0.786 | 0.500 | 0.578 | 19ms | retrieval_miss 3 |
+| `hybrid_all_terms` | 14 | 0.429 | 0.786 [0.57, 1.00] | 0.786 | 0.583 | 0.640 | 22ms | retrieval_miss 3 |
+| `hybrid` | 14 | 0.429 | 0.714 [0.50, 0.93] | 0.786 | 0.559 | 0.622 | 76ms | retrieval_miss 3, ranking_miss 1 |
+| `hybrid_bm25` | 14 | 0.429 | 0.714 [0.50, 0.93] | 0.786 | 0.572 | 0.624 | 109ms | ranking_miss 2, retrieval_miss 2 |
+| `hybrid_rerank` | 14 | 0.286 | 0.714 [0.50, 0.93] | 0.786 | 0.537 | 0.588 | 6,641ms | retrieval_miss 3, ranking_miss 1 |
 
 #### test
 
 | Config | n | Recall@1 | Recall@5 (95% CI) | Recall@10 | MRR@10 | nDCG@10 | p50 | Failures |
 |---|---|---|---|---|---|---|---|---|
-| `baseline` | 10 | 0.500 | 0.700 [0.40, 1.00] | 0.900 | 0.603 | 0.671 | 21ms | ranking_miss 2, retrieval_miss 1 |
+| `baseline` | 10 | 0.500 | 0.700 [0.40, 1.00] | 0.900 | 0.603 | 0.671 | 23ms | ranking_miss 2, retrieval_miss 1 |
 | `structure_aware` | 10 | 0.300 | 0.700 [0.40, 1.00] | 0.700 | 0.467 | 0.526 | 20ms | retrieval_miss 2, ranking_miss 1 |
-| `hybrid_all_terms` | 10 | 0.400 | 0.700 [0.40, 1.00] | 0.700 | 0.517 | 0.563 | 25ms | retrieval_miss 2, ranking_miss 1 |
-| `hybrid` | 10 | 0.400 | 0.600 [0.30, 0.90] | 0.700 | 0.502 | 0.559 | 85ms | ranking_miss 4 |
-| `hybrid_bm25` | 10 | 0.300 | 0.700 [0.40, 1.00] | 0.700 | 0.496 | 0.559 | 111ms | ranking_miss 3 |
-| `hybrid_rerank` | 10 | 0.400 | 0.700 [0.40, 1.00] | 0.900 | 0.592 | 0.676 | 9,621ms | ranking_miss 3 |
+| `hybrid_all_terms` | 10 | 0.400 | 0.700 [0.40, 1.00] | 0.700 | 0.517 | 0.563 | 30ms | retrieval_miss 2, ranking_miss 1 |
+| `hybrid` | 10 | 0.400 | 0.700 [0.40, 1.00] | 0.700 | 0.505 | 0.563 | 66ms | ranking_miss 3 |
+| `hybrid_bm25` | 10 | 0.300 | 0.700 [0.40, 1.00] | 0.700 | 0.496 | 0.559 | 91ms | ranking_miss 3 |
+| `hybrid_rerank` | 10 | 0.400 | 0.700 [0.40, 1.00] | 0.900 | 0.592 | 0.676 | 6,737ms | ranking_miss 3 |
 
 ### What each experiment found
 
@@ -131,9 +159,9 @@ and an exact sign-flip test. "Distinguishable" means the interval excludes zero.
 | baseline (pre-audit) → baseline | +0.571 [+0.29, +0.86] | 0.008 | 8 / 0 | +0.264 [+0.11, +0.46] | **distinguishable** |
 | baseline → structure_aware | -0.071 [-0.21, +0.00] | 1.000 | 0 / 1 | -0.038 [-0.29, +0.20] | noise |
 | structure_aware → hybrid_all_terms | +0.000 [+0.00, +0.00] | 1.000 | 0 / 0 | +0.083 [+0.00, +0.20] | noise |
-| hybrid_all_terms → hybrid | -0.071 [-0.21, +0.00] | 1.000 | 0 / 1 | -0.025 [-0.20, +0.13] | noise |
-| hybrid → hybrid_bm25 | +0.000 [-0.21, +0.21] | 1.000 | 1 / 1 | +0.014 [-0.19, +0.23] | noise |
-| hybrid → hybrid_rerank | +0.000 [-0.21, +0.21] | 1.000 | 1 / 1 | -0.022 [-0.27, +0.24] | noise |
+| hybrid_all_terms → hybrid | -0.071 [-0.21, +0.00] | 1.000 | 0 / 1 | -0.024 [-0.19, +0.13] | noise |
+| hybrid → hybrid_bm25 | +0.000 [-0.21, +0.21] | 1.000 | 1 / 1 | +0.013 [-0.19, +0.23] | noise |
+| hybrid → hybrid_rerank | +0.000 [-0.21, +0.21] | 1.000 | 1 / 1 | -0.023 [-0.27, +0.24] | noise |
 | baseline → hybrid_bm25 | -0.143 [-0.36, +0.00] | 0.500 | 0 / 2 | +0.034 [-0.24, +0.30] | noise |
 
 #### test
@@ -143,9 +171,9 @@ and an exact sign-flip test. "Distinguishable" means the interval excludes zero.
 | baseline (pre-audit) → baseline | +0.600 [+0.30, +0.90] | 0.031 | 6 / 0 | +0.503 [+0.24, +0.77] | **distinguishable** |
 | baseline → structure_aware | +0.000 [-0.30, +0.30] | 1.000 | 1 / 1 | -0.137 [-0.40, +0.07] | noise |
 | structure_aware → hybrid_all_terms | +0.000 [+0.00, +0.00] | 1.000 | 0 / 0 | +0.050 [+0.00, +0.15] | noise |
-| hybrid_all_terms → hybrid | -0.100 [-0.30, +0.00] | 1.000 | 0 / 1 | -0.015 [-0.21, +0.15] | noise |
-| hybrid → hybrid_bm25 | +0.100 [+0.00, +0.30] | 1.000 | 1 / 0 | -0.006 [-0.14, +0.10] | noise |
-| hybrid → hybrid_rerank | +0.100 [+0.00, +0.30] | 1.000 | 1 / 0 | +0.090 [-0.16, +0.35] | noise |
+| hybrid_all_terms → hybrid | +0.000 [+0.00, +0.00] | 1.000 | 0 / 0 | -0.012 [-0.21, +0.15] | noise |
+| hybrid → hybrid_bm25 | +0.000 [+0.00, +0.00] | 1.000 | 0 / 0 | -0.009 [-0.14, +0.09] | noise |
+| hybrid → hybrid_rerank | +0.000 [+0.00, +0.00] | 1.000 | 0 / 0 | +0.087 [-0.16, +0.35] | noise |
 | baseline → hybrid_bm25 | +0.000 [-0.30, +0.30] | 1.000 | 1 / 1 | -0.107 [-0.36, +0.10] | noise |
 
 **The correction is the only distinguishable effect.** Every retrieval
@@ -164,15 +192,17 @@ or two items. Read the verdicts as that, not as a leaderboard:
 - **`hybrid`** — any-term matching fixes the empty leg but, ranked by
   `ts_rank_cd`, which has no IDF, it helps `exact_term` items and hurts
   `factual` ones: a question about ConfigMap size had its gold chunk fall from
-  rank 1 to 9, outranked by chunks repeating "data". On the fixture it lost
+  rank 1 to 8, outranked by chunks repeating "data". On the fixture it lost
   the one `table_or_code` item, and the CI gate caught it.
 - **`hybrid_bm25`** — Okapi BM25 computed in SQL (next section) puts the
-  ConfigMap item back at rank 1, restores what `hybrid` lost on test and on
-  the fixture (fixture recall@5 1.000 vs 0.667), and ties it on dev. It is what `full` ships — on the strength of the
-  fixture and the IDF argument, not on a golden-set difference, which it does
-  not have.
+  ConfigMap item back at rank 1, restores what `hybrid` lost on the fixture
+  (fixture recall@5 1.000 vs 0.667), and ties it on both golden splits. It is
+  what `full` ships, on the strength of the fixture and the IDF argument, not
+  on a golden-set difference, which it does not have. (It was once said to
+  restore a test-split loss too. That loss was the tie-order coin flip of
+  [the second pass](#the-second-pass).)
 - **`hybrid_rerank`** — within noise of `hybrid` on both splits, at p50
-  **7.8 s** against 71 ms on CPU. Off in `full`.
+  **6.6 s** against 76 ms on CPU. Off in `full`.
 
 #### Recall@5 by category
 
@@ -212,9 +242,11 @@ returned score with an independent Python BM25 over the same tsvectors and
 agrees to 1e-9. That test is also what found the HTML-comment chunks: it
 disagreed with the SQL about `N`.
 
-On three questions where `ts_rank_cd` did not have the gold chunk anywhere in
-its top 20, BM25 ranked it 2nd, 3rd and 4th, at 40–60 ms per query — about
-twice `ts_rank_cd`'s cost.
+Searching each golden question in its gold evidence's release, `ts_rank_cd`
+has no gold chunk anywhere in its top 20 for six questions. BM25 ranks it 1st,
+2nd, 3rd, 4th, 7th and 20th. This was measured directly against the index
+(`lexical_search` with each config, at `33ace42`) rather than read from a
+record. The cost is 40–60 ms per query, about twice `ts_rank_cd`'s.
 
 ---
 
@@ -237,9 +269,9 @@ exercised version detection and conflict notes at all.
 | Retrieval recall@5 | 0.786 [0.57, 1.00] | 0.800 [0.50, 1.00] |
 | Context recall (top 6) | 0.786 | 0.900 |
 
-_dev: 19 items; failures: `ranking_miss` 2, `false_abstention` 1; 77 model calls (77 cached), $0.00; record `20260923T174037Z_full`._
+_dev: 19 items; failures: `ranking_miss` 2, `false_abstention` 1; 77 model calls (77 cached), $0.00; record `20261010T141045Z_full`._
 
-_test: 13 items; failures: `ranking_miss` 1; 59 model calls (59 cached), $0.00; record `20260923T174053Z_full`._
+_test: 13 items; failures: `ranking_miss` 1; 59 model calls (59 cached), $0.00; record `20261010T141101Z_full`._
 
 How much weight each row deserves, most trustworthy first:
 
@@ -289,9 +321,8 @@ properly needs a run with the cache disabled.
 Per-component observability (ARCHITECTURE D23) puts every eval item under an
 in-memory tracer and every model call behind an observer. Both only read, but
 "only reads" is a claim, so it was tested. Every recorded `golden_v1`
-retrieval run except `hybrid_rerank` (the reranker makes a replay take minutes,
-and it shares the code path) was re-run with tracing on and `--no-write`, and
-diffed against its committed record, metric by metric and chunk id by chunk id:
+retrieval run was re-run with tracing on and `--no-write`, and diffed against
+its committed record, metric by metric and chunk id by chunk id:
 
 | Record | Result |
 |---|---|
@@ -300,13 +331,15 @@ diffed against its committed record, metric by metric and chunk id by chunk id:
 | `hybrid_all_terms` dev, test | identical |
 | `hybrid_bm25` dev, test (shipping retrieval) | identical |
 | `hybrid` dev, test | **differs, and differs between two runs of the old code too** |
+| `hybrid_rerank` dev, test | metrics identical; one unanswerable item's ranking differs (same cause) |
 
 The `hybrid` difference is not tracing. The same replay on the code *before*
 this change, run twice in a row, gave a different ranking each time:
 `ts_rank_cd` produces ties, and that query orders by rank alone, so Postgres
 returns tied chunks in whatever order the plan produces. The BM25 query breaks
-ties by chunk id; this one did not. So the committed `hybrid` record cannot be
-reproduced, which is a measurement defect of its own (see below).
+ties by chunk id; this one did not. So the committed `hybrid` record could not
+be reproduced, which was a measurement defect of its own
+([the second pass](#the-second-pass)).
 
 From here on every record carries a `stages` block (p50/p95 per stage, model
 calls, cache hits, cost, and how many items each stage *fell back* on), and

@@ -79,8 +79,8 @@ alone needs.
    ```
 
 6. **Ingest.** The corpus is fetched from the kubernetes/website release
-   branches. The evaluated subset, both chunk sets (`full` serves
-   `structure_aware`; `baseline` and the plain `hybrid` configs use `fixed`):
+   branches. The evaluated subset, both chunk sets (`baseline` uses `fixed`;
+   `full` and every other config share the `structure_aware` set):
 
    ```bash
    docker compose -f docker-compose.prod.yml run --rm backend \

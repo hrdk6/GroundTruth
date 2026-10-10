@@ -1,0 +1,1022 @@
+{
+  "timestamp": "2026-10-10T14:12:42.665747+00:00",
+  "mode": "retrieval",
+  "split": "all",
+  "dataset_version": "fixture_golden",
+  "dataset_size": 8,
+  "version_hint": false,
+  "git_sha": "33ace422656fcbb9911ab23e2f411a95905dc090",
+  "git_dirty": false,
+  "config": {
+    "name": "hybrid_bm25",
+    "config_hash": "d8190f7762fc",
+    "chunker_name": "structure_aware-512-64-r3-4b595ec0",
+    "values": {
+      "name": "hybrid_bm25",
+      "description": "hybrid, with the lexical leg ranked by Okapi BM25 (k1=1.2, b=0.75) computed in SQL over the filtered chunk set.\n",
+      "chunking": {
+        "chunker": "structure_aware",
+        "max_tokens": 512,
+        "overlap_tokens": 64,
+        "min_tokens": 64,
+        "prepend_heading_path": true
+      },
+      "embedding": {
+        "model": "BAAI/bge-small-en-v1.5",
+        "dimension": 384,
+        "batch_size": 64,
+        "normalize": true,
+        "query_prefix": "Represent this sentence for searching relevant passages: ",
+        "document_prefix": ""
+      },
+      "retrieval": {
+        "dense": {
+          "enabled": true,
+          "k": 20,
+          "ef_search": 200
+        },
+        "lexical": {
+          "enabled": true,
+          "k": 20,
+          "text_search_config": "english",
+          "match": "any",
+          "ranking": "bm25",
+          "bm25_k1": 1.2,
+          "bm25_b": 0.75
+        },
+        "fusion": {
+          "enabled": true,
+          "rrf_k": 60
+        },
+        "rerank": {
+          "enabled": false,
+          "model": "BAAI/bge-reranker-base",
+          "batch_size": 32
+        },
+        "query_rewrite": {
+          "enabled": false,
+          "model": null,
+          "keep_original_for_lexical": true
+        },
+        "decomposition": {
+          "enabled": false,
+          "model": null,
+          "max_subqueries": 3
+        },
+        "k_final": 5,
+        "version_filter": true
+      },
+      "generation": {
+        "model": null,
+        "prompt": "grounded_v1",
+        "max_tokens": 1024,
+        "temperature": 0.0
+      },
+      "verification": {
+        "enabled": false,
+        "model": null,
+        "support_threshold": 0.8,
+        "max_regenerations": 1
+      },
+      "versioning": {
+        "default_version": "latest",
+        "detect_from_question": true,
+        "conflict_detection": false
+      }
+    }
+  },
+  "environment": {
+    "python": "3.12.12",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "llm_provider": "openai",
+    "llm_base_url": "https://integrate.api.nvidia.com/v1",
+    "generation_model": "nvidia/nemotron-3-super-120b-a12b",
+    "cheap_model": "nvidia/nemotron-3-super-120b-a12b"
+  },
+  "metrics": {
+    "count": 6,
+    "recall@1": 0.6667,
+    "recall@5": 1.0,
+    "recall@10": 1.0,
+    "mrr": 0.8333,
+    "ndcg@10": 0.877,
+    "partial_recall@10": 1.0,
+    "context_recall": 1.0,
+    "abstention_precision": null,
+    "abstention_recall": null,
+    "false_answer_rate": null
+  },
+  "metrics_by_category": {
+    "exact_term": {
+      "count": 2,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "partial_recall@10": 1.0,
+      "context_recall": 1.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "factual": {
+      "count": 3,
+      "recall@1": 0.3333,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.6667,
+      "ndcg@10": 0.754,
+      "partial_recall@10": 1.0,
+      "context_recall": 1.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "table_or_code": {
+      "count": 1,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "partial_recall@10": 1.0,
+      "context_recall": 1.0,
+      "abstention_precision": null,
+      "abstention_recall": null,
+      "false_answer_rate": null
+    },
+    "unanswerable": {
+      "count": 0,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "partial_recall@10": 0.0
+    }
+  },
+  "integrity": {
+    "chunker_name": "structure_aware-512-64-r3-4b595ec0",
+    "evidence_total": 6,
+    "evidence_matchable": 6,
+    "items_scored": 6,
+    "items_matchable": 6,
+    "recall_ceiling": 1.0,
+    "issues": []
+  },
+  "ranking": {
+    "k_final": 5,
+    "mrr_cutoff": 10,
+    "median_ranked_depth": 32.0
+  },
+  "attribution": {},
+  "latency": {
+    "p50_ms": 32.81,
+    "p95_ms": 10415.09,
+    "total_seconds": 10.74
+  },
+  "stages": {
+    "version_detection": {
+      "items": 8,
+      "p50_ms": 1.6,
+      "p95_ms": 1.83,
+      "llm_calls": 0,
+      "llm_cached": 0,
+      "llm_errors": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "degraded_items": 0,
+      "error_items": 0
+    },
+    "dense": {
+      "items": 8,
+      "p50_ms": 15.42,
+      "p95_ms": 10400.92,
+      "llm_calls": 0,
+      "llm_cached": 0,
+      "llm_errors": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "degraded_items": 0,
+      "error_items": 0
+    },
+    "lexical": {
+      "items": 8,
+      "p50_ms": 14.84,
+      "p95_ms": 17.16,
+      "llm_calls": 0,
+      "llm_cached": 0,
+      "llm_errors": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "degraded_items": 0,
+      "error_items": 0
+    },
+    "fusion": {
+      "items": 8,
+      "p50_ms": 0.06,
+      "p95_ms": 0.07,
+      "llm_calls": 0,
+      "llm_cached": 0,
+      "llm_errors": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "degraded_items": 0,
+      "error_items": 0
+    }
+  },
+  "cost": {
+    "calls": 0,
+    "cached_calls": 0,
+    "cache_hit_rate": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": 0.0,
+    "list_cost_usd": 0.0,
+    "by_model": {}
+  },
+  "items": [
+    {
+      "item_id": "fx-factual-001",
+      "category": "factual",
+      "question": "What unit is the memory resource measured in?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        749,
+        745,
+        751,
+        562,
+        560
+      ],
+      "best_rank": 1,
+      "ranked_depth": 27,
+      "gold_found": 1,
+      "gold_total": 1,
+      "in_context": true,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "abstain_reason": null,
+      "latency_ms": 10415.09,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.42,
+        "dense": 10400.91,
+        "lexical": 11.85,
+        "fusion": 0.08
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.4,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 10400.92,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 11.82,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.06,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-factual-002",
+      "category": "factual",
+      "question": "What group ID do containers get if runAsGroup is omitted?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        808,
+        807,
+        833,
+        1029,
+        806
+      ],
+      "best_rank": 2,
+      "ranked_depth": 37,
+      "gold_found": 1,
+      "gold_total": 1,
+      "in_context": true,
+      "recall@1": 0.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "abstain_reason": null,
+      "latency_ms": 32.2,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.72,
+        "dense": 15.42,
+        "lexical": 14.05,
+        "fusion": 0.07
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.71,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 15.42,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 14.04,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.06,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-factual-003",
+      "category": "factual",
+      "question": "Which namespace do objects go into when no namespace is given?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        732,
+        731,
+        724,
+        736,
+        561
+      ],
+      "best_rank": 2,
+      "ranked_depth": 35,
+      "gold_found": 1,
+      "gold_total": 1,
+      "in_context": true,
+      "recall@1": 0.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.5,
+      "ndcg@10": 0.6309,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "abstain_reason": null,
+      "latency_ms": 27.78,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.61,
+        "dense": 14.9,
+        "lexical": 10.41,
+        "fusion": 0.06
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.6,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 14.9,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 10.41,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.05,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-exact-001",
+      "category": "exact_term",
+      "question": "Which field sets the user ID that container processes run as?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        807,
+        812,
+        806,
+        811,
+        788
+      ],
+      "best_rank": 1,
+      "ranked_depth": 32,
+      "gold_found": 1,
+      "gold_total": 1,
+      "in_context": true,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "abstain_reason": null,
+      "latency_ms": 32.81,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.26,
+        "dense": 14.26,
+        "lexical": 16.28,
+        "fusion": 0.07
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.26,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 14.26,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 16.27,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.06,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-exact-002",
+      "category": "exact_term",
+      "question": "What is the kubectl command to create a namespace?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        733,
+        592,
+        737,
+        724,
+        726
+      ],
+      "best_rank": 1,
+      "ranked_depth": 31,
+      "gold_found": 1,
+      "gold_total": 1,
+      "in_context": true,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "abstain_reason": null,
+      "latency_ms": 32.63,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.84,
+        "dense": 15.11,
+        "lexical": 14.84,
+        "fusion": 0.08
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.83,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 15.1,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 14.84,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.07,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-code-001",
+      "category": "table_or_code",
+      "question": "Which memory literals are given as representing approximately the same value?",
+      "answerable": true,
+      "expected_version": "1.28",
+      "retrieved_chunk_ids": [
+        749,
+        562,
+        765,
+        902,
+        781
+      ],
+      "best_rank": 1,
+      "ranked_depth": 31,
+      "gold_found": 1,
+      "gold_total": 1,
+      "in_context": true,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@10": 1.0,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "",
+      "abstain_reason": null,
+      "latency_ms": 27.53,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.44,
+        "dense": 14.5,
+        "lexical": 10.87,
+        "fusion": 0.06
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.44,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 14.5,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 10.86,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.05,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-unans-001",
+      "category": "unanswerable",
+      "question": "How much does a managed Kubernetes control plane cost per month on the major cloud providers?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        625,
+        532,
+        633,
+        626,
+        623
+      ],
+      "best_rank": null,
+      "ranked_depth": 33,
+      "gold_found": 0,
+      "gold_total": 0,
+      "in_context": false,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "abstain_reason": null,
+      "latency_ms": 34.49,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.28,
+        "dense": 15.63,
+        "lexical": 17.06,
+        "fusion": 0.07
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.28,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 15.63,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 17.06,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.06,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "item_id": "fx-unans-002",
+      "category": "unanswerable",
+      "question": "What memory limit should I set for a Spring Boot service handling 5000 requests per second?",
+      "answerable": false,
+      "expected_version": null,
+      "retrieved_chunk_ids": [
+        745,
+        748,
+        751,
+        548,
+        746
+      ],
+      "best_rank": null,
+      "ranked_depth": 28,
+      "gold_found": 0,
+      "gold_total": 0,
+      "in_context": false,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@10": 0.0,
+      "answer": "",
+      "answer_sha": null,
+      "reference_answer": null,
+      "citations": [],
+      "abstained": false,
+      "version_used": "1.28",
+      "judge_score": null,
+      "judge_passed": null,
+      "judge_reason": "",
+      "judge_deterministic": null,
+      "support_fraction": null,
+      "citation_precision": null,
+      "attribution": "none",
+      "attribution_detail": "abstention not evaluated in retrieval-only mode",
+      "abstain_reason": null,
+      "latency_ms": 35.16,
+      "cost_usd": 0.0,
+      "stage_timings_ms": {
+        "version_detection": 1.74,
+        "dense": 15.68,
+        "lexical": 17.17,
+        "fusion": 0.07
+      },
+      "stages": {
+        "version_detection": {
+          "ms": 1.73,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "dense": {
+          "ms": 15.67,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "lexical": {
+          "ms": 17.16,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        },
+        "fusion": {
+          "ms": 0.06,
+          "runs": 1,
+          "llm_calls": 0,
+          "llm_cached": 0,
+          "llm_errors": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "status": "ok"
+        }
+      }
+    }
+  ],
+  "confidence": {
+    "recall@1": {
+      "mean": 0.6667,
+      "low": 0.3333,
+      "high": 1.0,
+      "n": 6
+    },
+    "recall@5": {
+      "mean": 1.0,
+      "low": 1.0,
+      "high": 1.0,
+      "n": 6
+    },
+    "recall@10": {
+      "mean": 1.0,
+      "low": 1.0,
+      "high": 1.0,
+      "n": 6
+    },
+    "mrr": {
+      "mean": 0.8333,
+      "low": 0.6667,
+      "high": 1.0,
+      "n": 6
+    },
+    "ndcg@10": {
+      "mean": 0.877,
+      "low": 0.7539,
+      "high": 1.0,
+      "n": 6
+    }
+  }
+}

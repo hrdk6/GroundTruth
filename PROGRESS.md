@@ -19,6 +19,11 @@ Legend: `[x]` done and verified · `[~]` built, partly verified · `[ ]` not don
 > carries a gold-integrity audit and 95% intervals. The pre-audit records are
 > kept in `experiments/superseded/` and are not results.
 >
+> A second pass, made while adding per-stage tracing, found two more: nDCG
+> counted duplicate chunks (every dev nDCG@10 was inflated, by up to 0.23),
+> and a lexical query had no tie-breaker, so `hybrid` could not be
+> reproduced. Every record was re-recorded; neither changes the verdict.
+>
 > **Still not done: judge validation.** `answer_correctness` is the answering
 > model grading itself, and the audit showed it flipping a verdict on a
 > formatting detail. It needs ~50 human labels
@@ -59,16 +64,17 @@ Legend: `[x]` done and verified · `[~]` built, partly verified · `[ ]` not don
 
 ## Phase 3 — Retrieval improvements  `[x]`
 
-Six configs, both splits, one commit. Paired comparisons in EXPERIMENTS.md.
+Six configs, both splits, one commit (re-recorded at `33ace42` after the
+second pass). Paired comparisons in EXPERIMENTS.md.
 
 | Config | recall@5 dev | recall@5 test | Verdict against its predecessor |
 |---|---|---|---|
 | `baseline` | 0.857 | 0.700 | — |
 | `structure_aware` | 0.786 | 0.700 | noise |
 | `hybrid_all_terms` | 0.786 | 0.700 | noise (lexical leg empty for 20/32 questions) |
-| `hybrid` | 0.714 | 0.600 | noise (any-term, no IDF) |
+| `hybrid` | 0.714 | 0.700 | noise (any-term, no IDF; once recorded as 0.600 on unbroken ties) |
 | `hybrid_bm25` | 0.714 | 0.700 | noise; **shipped** — fixes the fixture regression |
-| `hybrid_rerank` | 0.714 | 0.700 | noise, at ~100× latency — off |
+| `hybrid_rerank` | 0.714 | 0.700 | noise, at ~90× latency — off |
 
 - [x] Lexical leg: any-term matching and **BM25 computed in SQL**, checked
       against an independent Python BM25 to 1e-9

@@ -42,13 +42,21 @@ PAIRS = [
 ]
 
 
+# Records stamped before this are the ones the measurement audit replaced.
+# `superseded/` also holds later records replaced for other reasons (see its
+# README), so "pre-audit" is a time, not a folder.
+PRE_AUDIT_BEFORE = "20260923T120000Z"
+
+
 def record(
     name: str, split: str, *, superseded: bool = False, mode: str = "retrieval"
 ) -> dict[str, Any] | None:
-    """Newest golden_v1 record for (config, split, mode), current or pre-audit."""
+    """Newest golden_v1 record for (config, split, mode): current, or pre-audit."""
     folder = EXPERIMENTS_DIR / "superseded" if superseded else EXPERIMENTS_DIR
     found = None
     for path in sorted(folder.glob(f"2026*_{name}.json")):
+        if superseded and path.name >= PRE_AUDIT_BEFORE:
+            continue
         data = load_record(str(path))
         if (
             data.get("split") == split
